@@ -1,0 +1,14 @@
+{
+  "name": "Asa — escalas do ministério",
+  "short_name": "Asa",
+  "description": "Escalas, repertório e avisos do ministério de louvor.",
+  "lang": "pt-BR",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#F4F6FB",
+  "theme_color": "#1F4FE0",
+  "icons": [
+    { "src": "icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" }
+  ]
+}
