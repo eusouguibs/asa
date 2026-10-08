@@ -258,16 +258,21 @@ const SCREENS = {
       }
       if (S.loginSent) {
         return `<div class="center-screen"><div class="brand">${logo(84)}<h1 class="h1">Confira seu e-mail</h1>
-          <p class="sub">Enviamos um link de acesso para <strong>${esc(S.loginSent)}</strong>. Abra o e-mail neste aparelho e toque no link.</p></div>
-          <button class="btn outline block" data-act="loginAgain">Usar outro e-mail</button></div>`;
+          <p class="sub">Enviamos um código para <strong>${esc(S.loginSent)}</strong>. Digite-o aqui. Pode demorar um minuto e às vezes cai no spam.</p></div>
+          <form class="form" data-form="codigo">
+            <label class="field"><span>Código de acesso</span>
+              <input class="input" name="code" required inputmode="numeric" autocomplete="one-time-code" maxlength="10"
+                placeholder="000000" style="font-size:24px;letter-spacing:0.3em;text-align:center" autofocus></label>
+            <button class="btn primary block">Entrar</button></form>
+          <button class="btn link" data-act="loginAgain">Usar outro e-mail ou reenviar</button></div>`;
       }
       return `<div class="center-screen"><div class="brand">${logo(84)}<h1 class="h1">Asa</h1>
         <p class="sub">Escalas, repertório e avisos do seu ministério, num lugar só.</p></div>
         <form class="form" data-form="login">
           <label class="field"><span>Seu e-mail</span>
             <input class="input" name="email" type="email" required autocomplete="email" inputmode="email" placeholder="voce@exemplo.com"></label>
-          <button class="btn primary block">Receber link de acesso</button>
-          <small class="sub" style="text-align:center">Sem senha: você recebe um link no e-mail para entrar.</small>
+          <button class="btn primary block">Receber código de acesso</button>
+          <small class="sub" style="text-align:center">Sem senha: você recebe um código no e-mail para entrar.</small>
         </form></div>`;
     },
   },
@@ -697,6 +702,10 @@ const FORMS = {
   login: async (f) => {
     const email = f.get('email').trim();
     if (await run(() => S.api.auth.signIn(email))) { S.loginSent = email; refresh(); }
+  },
+  codigo: async (f) => {
+    if (await run(() => S.api.auth.verifyCode(S.loginSent, f.get('code')))) { S.loginSent = null; refresh(); }
+    else toast('Código incorreto ou vencido. Confira o último e-mail ou peça outro.');
   },
   perfil: async (f, el) => {
     const patch = { name: f.get('name').trim(), birthday: f.get('birthday') || null };

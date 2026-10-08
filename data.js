@@ -202,6 +202,10 @@ export async function supabaseAdapter(cfg) {
         ok(await sb.auth.signInWithOtp({ email, options: { emailRedirectTo: location.origin + location.pathname } }));
         return { instant: false };
       },
+      // Entrar digitando o código que veio no e-mail (funciona até no app instalado na tela de início).
+      async verifyCode(email, token) {
+        ok(await sb.auth.verifyOtp({ email, token: token.replace(/\D/g, ''), type: 'email' }));
+      },
       async signOut() { await sb.auth.signOut(); },
       onChange(cb) { sb.auth.onAuthStateChange(() => cb()); },
     },
