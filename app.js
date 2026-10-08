@@ -178,6 +178,18 @@ function push(name, params = {}) { S.stack.push({ name, params }); refresh(); }
 function replace(name, params = {}) { S.stack.pop(); S.stack.push({ name, params }); refresh(); }
 function back() { S.stack.pop(); refresh(); }
 
+// Mensagens de erro do servidor, em português.
+function friendly(msg = '') {
+  const m = msg.toLowerCase();
+  const wait = msg.match(/after (\d+) seconds?/i);
+  if (wait) return `Espere ${wait[1]} segundos para pedir outro código.`;
+  if (m.includes('rate limit')) return 'Muitos e-mails enviados em pouco tempo. Espere um pouco e tente de novo.';
+  if (m.includes('expired') || m.includes('invalid') && m.includes('token')) return 'Código incorreto ou vencido. Confira o último e-mail ou peça outro.';
+  if (m.includes('failed to fetch') || m.includes('network')) return 'Sem conexão com a internet. Confira o sinal e tente de novo.';
+  if (m.includes('invalid') && m.includes('email')) return 'Esse e-mail parece estar errado. Confira e tente de novo.';
+  return msg || 'Algo deu errado. Tente de novo.';
+}
+
 async function run(fn, okMsg) {
   try {
     await fn();
@@ -185,7 +197,7 @@ async function run(fn, okMsg) {
     return true;
   } catch (e) {
     console.error(e);
-    toast(e.message || 'Algo deu errado. Tente de novo.');
+    toast(friendly(e.message));
     return false;
   }
 }
@@ -705,7 +717,6 @@ const FORMS = {
   },
   codigo: async (f) => {
     if (await run(() => S.api.auth.verifyCode(S.loginSent, f.get('code')))) { S.loginSent = null; refresh(); }
-    else toast('Código incorreto ou vencido. Confira o último e-mail ou peça outro.');
   },
   perfil: async (f, el) => {
     const patch = { name: f.get('name').trim(), birthday: f.get('birthday') || null };
