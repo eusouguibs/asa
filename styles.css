@@ -188,3 +188,8 @@ textarea.input.mono { font-family: ui-monospace, 'SF Mono', Menlo, monospace; fo
 .chip-link { justify-content: center; padding: 9px 8px; font-size: 13px; }
 .search svg { color: var(--muted); flex-shrink: 0; }
 .search .btn.link { padding: 8px 4px; }
+.link-row { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+.chip-link { flex-direction: column; gap: 2px; padding: 8px 4px; border-radius: 14px; font-size: 12px; }
+.link-field { display: flex; align-items: center; gap: 8px; }
+.link-field .input { flex: 1; min-width: 0; padding: 11px 12px; font-size: 15px; }
+.link-ic { color: var(--blue); display: inline-flex; }

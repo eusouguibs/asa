@@ -298,13 +298,13 @@ export function createApi(a) {
         title: s.title.trim(), artist: (s.artist || '').trim(), key: s.key || '',
         link: (s.link || '').trim(), content: s.content || '',
       };
-      const extra = { artwork: s.artwork || '', duration: Number(s.duration) || 0, bpm: Number(s.bpm) || 0 };
+      const extra = { artwork: s.artwork || '', duration: Number(s.duration) || 0, bpm: Number(s.bpm) || 0, links: s.links || {} };
       const save = (fields) => (s.id ? a.update('songs', s.id, fields) : a.insert('songs', { ministry_id: s.ministry_id, ...fields }));
       try {
         return await save({ ...base, ...extra });
       } catch (e) {
         // Banco ainda sem as colunas novas (capa, duração, BPM): salva o essencial mesmo assim.
-        if (/artwork|duration|bpm/i.test(e.message || '')) return save(base);
+        if (/artwork|duration|bpm|links/i.test(e.message || '')) return save(base);
         throw e;
       }
     },

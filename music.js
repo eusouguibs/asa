@@ -177,3 +177,59 @@ export function searchSongs(term) {
     document.head.appendChild(script);
   });
 }
+
+// ---------- Preenchimento automático de links ----------
+
+// "Ao Único (Ao Vivo)" -> "ao-unico", como nos endereços do Cifra Club.
+export function slug(s) {
+  return String(s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase()
+    .replace(/\(.*?\)|\[.*?\]/g, '').replace(/\s+-\s+.*$/, '').replace(/&/g, ' ')
+    .replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
+}
+
+// "Davi Fernandes & Cultura do Céu" -> "Davi Fernandes" (o Cifra Club guarda no primeiro artista).
+export function mainArtist(a) {
+  return String(a || '').split(/\s*(?:&|,|\bfeat\.?|\bft\.?|\bpart\.?|\be\b|\bx\b)\s*/i)[0].trim();
+}
+
+// Endereço direto da cifra e da letra no Cifra Club.
+export function cifraClubLinks(title, artist) {
+  const a = slug(mainArtist(artist)), t = slug(title);
+  if (!a || !t) return { cifra: '', letra: '' };
+  const base = `https://www.cifraclub.com.br/${a}/${t}/`;
+  return { cifra: base, letra: base + 'letra/' };
+}
+
+function jsonp(url, ms = 8000) {
+  return new Promise((resolve, reject) => {
+    const cb = 'asaJ' + Date.now() + Math.floor(Math.random() * 1e5);
+    const s = document.createElement('script');
+    const timer = setTimeout(() => { done(); reject(new Error('timeout')); }, ms);
+    function done() { clearTimeout(timer); delete window[cb]; s.remove(); }
+    window[cb] = (d) => { done(); resolve(d); };
+    s.onerror = () => { done(); reject(new Error('erro')); };
+    s.src = url + (url.includes('?') ? '&' : '?') + 'output=jsonp&callback=' + cb;
+    document.head.appendChild(s);
+  });
+}
+
+const norm = (s) => slug(s).replace(/-/g, ' ');
+
+// Link exato da faixa no Deezer (para ouvir) e o BPM, quando o Deezer tiver.
+export async function findAudio(title, artist) {
+  try {
+    const q = encodeURIComponent(`${title.replace(/\(.*?\)/g, '')} ${mainArtist(artist)}`.trim());
+    const res = await jsonp(`https://api.deezer.com/search?q=${q}&limit=10`);
+    const list = res.data || [];
+    const t = norm(title), a = norm(mainArtist(artist));
+    const pick = list.find((x) => norm(x.title) === t && norm(x.artist?.name).includes(a))
+      || list.find((x) => norm(x.title).startsWith(t) && norm(x.artist?.name).includes(a))
+      || list.find((x) => norm(x.artist?.name).includes(a));
+    if (!pick) return null;
+    let bpm = 0;
+    try { bpm = Math.round((await jsonp(`https://api.deezer.com/track/${pick.id}`)).bpm || 0); } catch { /* sem BPM */ }
+    return { audio: pick.link, bpm };
+  } catch {
+    return null;
+  }
+}

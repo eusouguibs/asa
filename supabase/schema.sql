@@ -49,6 +49,7 @@ create table if not exists public.songs (
 alter table public.songs add column if not exists artwork text not null default '';
 alter table public.songs add column if not exists duration int not null default 0;
 alter table public.songs add column if not exists bpm int not null default 0;
+alter table public.songs add column if not exists links jsonb not null default '{}'::jsonb;
 
 create table if not exists public.events (
   id uuid primary key default gen_random_uuid(),

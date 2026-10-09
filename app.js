@@ -2,8 +2,20 @@
 import { createApi, demoAdapter, supabaseAdapter, todayISO, addDays } from './data.js';
 import {
   MAJOR_KEYS, MINOR_KEYS, parseKey, shiftKey, semitonesBetween, transposeText, detectKey,
-  renderCifra, songLinks, fmtDuration, searchSongs,
+  renderCifra, songLinks, fmtDuration, searchSongs, cifraClubLinks, findAudio,
 } from './music.js';
+
+const LINK_FIELDS = [
+  ['cifra', 'Cifra', 'doc'],
+  ['letra', 'Letra', 'text'],
+  ['audio', 'Áudio', 'music'],
+  ['video', 'Vídeo', 'play'],
+];
+const linksOf = (s) => {
+  const l = (s && typeof s.links === 'object' && s.links) || {};
+  return { cifra: l.cifra || '', letra: l.letra || '', audio: l.audio || '', video: l.video || (s && s.link) || '' };
+};
+const safeUrl = (u) => (/^https?:\/\//i.test(u) ? u : 'https://' + u);
 
 // ---------- Utilidades ----------
 
@@ -42,6 +54,9 @@ const I = {
   minus: '<path d="M5 12h14"/>',
   doc: '<path d="M7 3h7l5 5v13H7z"/><path d="M14 3v5h5M10 13h6M10 17h6"/>',
   clip: '<rect x="8" y="3" width="8" height="4" rx="1"/><path d="M8 5H6v16h12V5h-2"/>',
+  text: '<path d="M5 6h14M5 12h14M5 18h9"/>',
+  bolt: '<path d="M13 2L4 14h7l-1 8 9-12h-7z"/>',
+  ext: '<path d="M14 4h6v6M20 4l-9 9M18 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h5"/>',
   trash: '<path d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3"/>',
   search: '<circle cx="11" cy="11" r="7"/><path d="M20 20l-4-4"/>',
   mega: '<path d="M4 10v4h3l6 4V6L7 10z"/><path d="M17 9a4 4 0 0 1 0 6"/>',
@@ -611,9 +626,8 @@ const SCREENS = {
       const shown = sv.key || orig;
       const steps = orig && shown ? semitonesBetween(orig, shown) : 0;
       const text = transposeText(s.content, steps, shown);
-      const links = songLinks(s.title, s.artist);
-      const yt = /youtu/.test(s.link) ? s.link : links.youtube;
-      const sp = /spotify/.test(s.link) ? s.link : links.spotify;
+      const search = songLinks(s.title, s.artist);
+      const L = linksOf(s);
       const keyList = parseKey(orig)?.minor ? MINOR_KEYS : MAJOR_KEYS;
       const fromEvent = params.es && params.key !== undefined;
       const meta = [s.artist, fmtDuration(s.duration), s.bpm ? `${s.bpm} BPM` : ''].filter(Boolean).join(' · ');
@@ -622,9 +636,10 @@ const SCREENS = {
           <button class="icon-btn" data-act="delSong" data-id="${s.id}" aria-label="Apagar música">${icon('trash', 20)}</button></div>` : ''}</div>
         <div class="song-head">${cover(s, 'lg')}<div class="title-block grow" style="min-width:0"><h1 class="h1">${esc(s.title)}</h1><p class="sub">${esc(meta)}</p></div></div>
         <div class="link-row">
-          <a class="chip-link" href="${esc(links.cifra)}" target="_blank" rel="noopener">${icon('doc', 18)}Cifra Club</a>
-          <a class="chip-link" href="${esc(yt)}" target="_blank" rel="noopener">${icon('play', 18)}YouTube</a>
-          <a class="chip-link" href="${esc(sp)}" target="_blank" rel="noopener">${icon('music', 18)}Spotify</a></div>
+          <a class="chip-link" href="${esc(L.cifra ? safeUrl(L.cifra) : search.cifra)}" target="_blank" rel="noopener">${icon('doc', 18)}Cifra</a>
+          <a class="chip-link" href="${esc(L.letra ? safeUrl(L.letra) : search.cifra)}" target="_blank" rel="noopener">${icon('text', 18)}Letra</a>
+          <a class="chip-link" href="${esc(L.audio ? safeUrl(L.audio) : search.spotify)}" target="_blank" rel="noopener">${icon('music', 18)}Ouvir</a>
+          <a class="chip-link" href="${esc(L.video ? safeUrl(L.video) : search.youtube)}" target="_blank" rel="noopener">${icon('play', 18)}Vídeo</a></div>
         ${orig ? `<div class="card key-card">
           <div class="key-row"><span class="h2">Tom</span>
             <button class="icon-btn" data-act="keyStep" data-v="-1" aria-label="Meio tom abaixo">${icon('minus', 20)}</button>
@@ -671,8 +686,16 @@ const SCREENS = {
             <label class="field grow"><span>Tom da cifra</span><select class="input" name="key" data-auto="${v.key ? '0' : '1'}"><option value="">Detectar pela cifra</option>
               ${keys.map((k) => `<option ${k === v.key ? 'selected' : ''}>${k}</option>`).join('')}</select></label>
             <label class="field" style="width:110px"><span>BPM</span><input class="input" name="bpm" type="number" inputmode="numeric" min="0" max="300" value="${esc(v.bpm || '')}"></label></div>
-          <label class="field"><span>Link da versão no YouTube ou Spotify <small>(opcional)</small></span>
-            <input class="input" name="link" type="url" inputmode="url" maxlength="300" placeholder="https://" value="${esc(v.link || '')}"></label>
+          <div class="section">
+            <div class="section-head"><h2 class="h2">Links</h2>
+              <button type="button" class="btn link small" data-act="autofill">${icon('bolt', 18)}Preencher automaticamente</button></div>
+            ${LINK_FIELDS.map(([k, label, ic]) => `<div class="link-field">
+              <span class="link-ic" aria-hidden="true">${icon(ic, 20)}</span>
+              <label class="sr-only" for="link-${k}">Link ${label.toLowerCase()}</label>
+              <input class="input" id="link-${k}" name="link_${k}" type="url" inputmode="url" maxlength="400" placeholder="Link ${label.toLowerCase()}" value="${esc(linksOf(v)[k])}">
+              <button type="button" class="icon-btn" data-act="openLink" data-k="${k}" aria-label="Abrir link ${label.toLowerCase()}">${icon('ext', 20)}</button></div>`).join('')}
+            <small class="sub" data-autofill-hint>${params.prefill ? 'Links preenchidos pela busca. Toque em abrir para conferir.' : ''}</small>
+          </div>
           <button class="btn primary block">${s ? 'Salvar alterações' : 'Salvar no repertório'}</button></form></div>`;
     },
   },
@@ -780,7 +803,45 @@ const ACTIONS = {
   past: (d) => { S.escalasPast = d.v === '1'; refresh(); },
   newEvent: () => push('eventoForm', {}),
   newSong: () => { S.search = { term: '', results: [], loading: false, error: '' }; push('buscarMusica', {}); },
-  pickResult: (d) => push('musicaForm', { prefill: S.search.results[Number(d.i)] }),
+  pickResult: (d) => {
+    const r = { ...S.search.results[Number(d.i)] };
+    const cc = cifraClubLinks(r.title, r.artist);
+    r.links = { cifra: cc.cifra, letra: cc.letra, audio: '', video: '' };
+    push('musicaForm', { prefill: r });
+    findAudio(r.title, r.artist).then((a) => {
+      if (!a) return;
+      r.links.audio = a.audio;
+      if (a.bpm) r.bpm = a.bpm;
+      const f = root().querySelector('form[data-form="musica"]');
+      if (!f) return;
+      if (!f.elements.link_audio.value) f.elements.link_audio.value = a.audio;
+      if (a.bpm && !f.elements.bpm.value) f.elements.bpm.value = a.bpm;
+    });
+  },
+  autofill: async (d, el) => {
+    const f = el.closest('form');
+    const title = f.elements.title.value.trim(), artist = f.elements.artist.value.trim();
+    if (!title || !artist) return toast('Preencha o nome da música e o artista.');
+    const hint = f.querySelector('[data-autofill-hint]');
+    hint.textContent = 'Procurando links…';
+    let n = 0;
+    const set = (name, val) => { if (val && !f.elements[name].value) { f.elements[name].value = val; n++; } };
+    const cc = cifraClubLinks(title, artist);
+    set('link_cifra', cc.cifra);
+    set('link_letra', cc.letra);
+    const a = await findAudio(title, artist);
+    if (a) { set('link_audio', a.audio); if (a.bpm && !f.elements.bpm.value) f.elements.bpm.value = a.bpm; }
+    hint.textContent = n
+      ? `${n} ${n === 1 ? 'link preenchido' : 'links preenchidos'}. Toque em abrir para conferir e depois salve.`
+      : 'Nenhum campo vazio para preencher. Apague um link para trocá-lo.';
+  },
+  openLink: (d, el) => {
+    const f = el.closest('form');
+    const v = f.elements['link_' + d.k].value.trim();
+    const s = songLinks(f.elements.title.value, f.elements.artist.value);
+    const fallback = { cifra: s.cifra, letra: s.cifra, audio: s.spotify, video: s.youtube }[d.k];
+    window.open(v ? safeUrl(v) : fallback, '_blank', 'noopener');
+  },
   preview: (d) => {
     if (S.playing === d.url) { stopAudio(); return repaint(); }
     stopAudio();
@@ -792,7 +853,8 @@ const ACTIONS = {
   },
   openCifra: (d, el) => {
     const f = el.closest('form');
-    const url = songLinks(f.elements.title.value, f.elements.artist.value).cifra;
+    const exact = f.elements.link_cifra.value.trim();
+    const url = exact ? safeUrl(exact) : songLinks(f.elements.title.value, f.elements.artist.value).cifra;
     window.open(url, '_blank', 'noopener');
   },
   pasteCifra: async (d, el) => {
@@ -940,7 +1002,8 @@ const FORMS = {
       const content = f.get('content') || '';
       saved = await S.api.saveSong({
         id, ministry_id: S.mid, title: f.get('title'), artist: f.get('artist'),
-        key: f.get('key') || detectKey(content), link: f.get('link'), content,
+        key: f.get('key') || detectKey(content), link: (f.get('link_video') || '').trim(), content,
+        links: Object.fromEntries(LINK_FIELDS.map(([k]) => [k, (f.get('link_' + k) || '').trim()])),
         artwork: f.get('artwork'), duration: f.get('duration'), bpm: f.get('bpm'),
       });
     }, id ? 'Música atualizada.' : 'Música salva no repertório.');
