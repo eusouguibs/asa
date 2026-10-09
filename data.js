@@ -290,13 +290,24 @@ export function createApi(a) {
 
     songs: (mid) => a.list('songs', { ministry_id: mid }),
     async song(id) { return (await a.list('songs', { id }))[0] || null; },
-    saveSong(s) {
-      const fields = {
+    async saveSong(s) {
+      const base = {
         title: s.title.trim(), artist: (s.artist || '').trim(), key: s.key || '',
         link: (s.link || '').trim(), content: s.content || '',
       };
-      return s.id ? a.update('songs', s.id, fields) : a.insert('songs', { ministry_id: s.ministry_id, ...fields });
+      const extra = { artwork: s.artwork || '', duration: Number(s.duration) || 0, bpm: Number(s.bpm) || 0 };
+      const save = (fields) => (s.id ? a.update('songs', s.id, fields) : a.insert('songs', { ministry_id: s.ministry_id, ...fields }));
+      try {
+        return await save({ ...base, ...extra });
+      } catch (e) {
+        // Banco ainda sem as colunas novas (capa, duração, BPM): salva o essencial mesmo assim.
+        if (/artwork|duration|bpm/i.test(e.message || '')) return save(base);
+        throw e;
+      }
     },
+    // Só a cifra e o tom (usado ao salvar a música num tom novo).
+    saveSongKey: (id, key, content) => a.update('songs', id, { key, content }),
+    updateEventSong: (id, patch) => a.update('event_songs', id, patch),
     deleteSong: (id) => a.remove('songs', id),
     addEventSong: (row) => a.insert('event_songs', row),
     removeEventSong: (id) => a.remove('event_songs', id),

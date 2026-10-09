@@ -45,6 +45,11 @@ create table if not exists public.songs (
   created_at timestamptz not null default now()
 );
 
+-- Capa, duração e BPM das músicas (adicionados depois; seguro rodar de novo).
+alter table public.songs add column if not exists artwork text not null default '';
+alter table public.songs add column if not exists duration int not null default 0;
+alter table public.songs add column if not exists bpm int not null default 0;
+
 create table if not exists public.events (
   id uuid primary key default gen_random_uuid(),
   ministry_id uuid not null references public.ministries (id) on delete cascade,

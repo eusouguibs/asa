@@ -1,5 +1,9 @@
 // Asa — telas e navegação do app.
 import { createApi, demoAdapter, supabaseAdapter, todayISO, addDays } from './data.js';
+import {
+  MAJOR_KEYS, MINOR_KEYS, parseKey, shiftKey, semitonesBetween, transposeText, detectKey,
+  renderCifra, songLinks, fmtDuration, searchSongs,
+} from './music.js';
 
 // ---------- Utilidades ----------
 
@@ -8,7 +12,6 @@ const WD = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb'];
 const WDL = ['Domingo', 'Segunda', 'Terça', 'Quarta', 'Quinta', 'Sexta', 'Sábado'];
 const MON = ['jan', 'fev', 'mar', 'abr', 'mai', 'jun', 'jul', 'ago', 'set', 'out', 'nov', 'dez'];
 const MONL = ['janeiro', 'fevereiro', 'março', 'abril', 'maio', 'junho', 'julho', 'agosto', 'setembro', 'outubro', 'novembro', 'dezembro'];
-const KEYS = ['C', 'C#', 'Db', 'D', 'D#', 'Eb', 'E', 'F', 'F#', 'Gb', 'G', 'G#', 'Ab', 'A', 'A#', 'Bb', 'B', 'Cm', 'C#m', 'Dm', 'D#m', 'Ebm', 'Em', 'Fm', 'F#m', 'Gm', 'G#m', 'Am', 'A#m', 'Bbm', 'Bm'];
 const STATUS = { pending: 'Pendente', confirmed: 'Confirmou', declined: 'Não pode' };
 const EVENT_NAMES = ['Culto de domingo', 'Culto de oração', 'Santa ceia', 'Culto de jovens', 'Ensaio'];
 
@@ -34,6 +37,11 @@ const I = {
   back: '<path d="M15 5l-7 7 7 7"/>',
   chev: '<path d="M9 5l7 7-7 7"/>',
   x: '<path d="M6 6l12 12M18 6L6 18"/>',
+  play: '<path d="M8 5v14l11-7z"/>',
+  pause: '<path d="M8 5v14M16 5v14"/>',
+  minus: '<path d="M5 12h14"/>',
+  doc: '<path d="M7 3h7l5 5v13H7z"/><path d="M14 3v5h5M10 13h6M10 17h6"/>',
+  clip: '<rect x="8" y="3" width="8" height="4" rx="1"/><path d="M8 5H6v16h12V5h-2"/>',
   trash: '<path d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3"/>',
   search: '<circle cx="11" cy="11" r="7"/><path d="M20 20l-4-4"/>',
   mega: '<path d="M4 10v4h3l6 4V6L7 10z"/><path d="M17 9a4 4 0 0 1 0 6"/>',
@@ -66,7 +74,35 @@ const S = {
   escalasPast: false,
   loginSent: null,
   pendingInvite: null,
+  search: { term: '', results: [], loading: false, error: '' },
+  playing: null,
+  songView: null,
 };
+
+let audio = null;
+function stopAudio() { if (audio) { audio.pause(); audio = null; } S.playing = null; }
+
+function repaint() {
+  const sc = root().querySelector('.scroll');
+  paint(sc ? sc.scrollTop : 0);
+}
+
+// Capa da música (ou um ícone, se não houver).
+function cover(s, size = '') {
+  return s.artwork
+    ? `<img class="cover ${size}" src="${esc(s.artwork)}" alt="" loading="lazy">`
+    : `<span class="cover ${size} cover-empty">${icon('music', size ? 28 : 20)}</span>`;
+}
+
+// Preferências da tela da música: tom escolhido, só letra e tamanho do texto.
+function songView(s, params, orig) {
+  if (!S.songView || S.songView.id !== s.id || S.songView.forKey !== params.key) {
+    let size = 15;
+    try { size = Number(localStorage.getItem('asa-cifra-size')) || 15; } catch { /* ignore */ }
+    S.songView = { id: s.id, forKey: params.key, key: params.key || orig, lyrics: false, size };
+  }
+  return S.songView;
+}
 
 const store = {
   get(k) { try { return localStorage.getItem(k); } catch { return null; } },
@@ -134,6 +170,7 @@ function showText(title, text) {
 // ---------- Fluxo principal ----------
 
 async function refresh({ keepScroll = false } = {}) {
+  stopAudio();
   const scroller = root().querySelector('.scroll');
   const top = keepScroll && scroller ? scroller.scrollTop : 0;
   try {
@@ -426,7 +463,7 @@ const SCREENS = {
         <div class="section"><h2 class="h2">Músicas</h2>
           ${ev.songs.length ? `<div class="list">${ev.songs.map((x, i) => `<div class="item">
             <span class="item-sub" style="width:18px;font-weight:700">${i + 1}</span>
-            <button class="item-main" data-act="open" data-screen="musica" data-id="${x.song.id}" style="border:0;background:none;padding:0;text-align:left;cursor:pointer;color:inherit">
+            <button class="item-main" data-act="open" data-screen="musica" data-id="${x.song.id}" data-key="${esc(x.key || x.song.key || '')}" data-es="${x.id}" style="border:0;background:none;padding:0;text-align:left;cursor:pointer;color:inherit">
               <span class="item-title">${esc(x.song.title)}</span><span class="item-sub">${esc(x.song.artist)}</span></button>
             ${x.key ? `<span class="key">${esc(x.key)}</span>` : ''}
             ${admin ? `<button class="icon-btn" data-act="delEventSong" data-id="${x.id}" aria-label="Tirar música">${icon('x', 18)}</button>` : ''}</div>`).join('')}</div>`
@@ -491,7 +528,7 @@ const SCREENS = {
           <span class="item-main"><span class="item-title">${esc(s.title)}</span><span class="item-sub">${esc(s.artist)}</span></span>
           ${s.key ? `<span class="key">${esc(s.key)}</span>` : ''}</button>`).join('')}</div>`
           : `<div class="empty">Todas as músicas do repertório já estão nesta escala.</div>`}
-        <button class="btn outline block" data-act="open" data-screen="musicaForm">${icon('plus', 18)}Cadastrar música nova</button></div>`;
+        <button class="btn outline block" data-act="newSong">${icon('search', 18)}Buscar música nova</button></div>`;
     },
   },
 
@@ -502,48 +539,124 @@ const SCREENS = {
       const list = songs.slice().sort((a, b) => a.title.localeCompare(b.title, 'pt-BR'));
       const artists = new Set(songs.map((s) => s.artist).filter(Boolean)).size;
       return `<div class="scroll">${header('Repertório', `${songs.length} ${songs.length === 1 ? 'música' : 'músicas'} · ${artists} ${artists === 1 ? 'artista' : 'artistas'}`)}
-        <label class="search">${icon('search', 20)}<span class="sr-only">Buscar</span>
-          <input type="search" data-filter="songs" placeholder="Buscar música, artista ou tom"></label>
+        <label class="search">${icon('search', 20)}<span class="sr-only">Buscar no repertório</span>
+          <input type="search" data-filter="songs" placeholder="Buscar no repertório"></label>
         ${list.length ? `<div class="list" data-filter-list="songs">${list.map((s) => `<button class="item" data-act="open" data-screen="musica" data-id="${s.id}" data-text="${esc((s.title + ' ' + s.artist + ' ' + s.key).toLowerCase())}">
-          <span class="avatar" style="border-radius:12px;width:44px;height:44px">${icon('music', 20)}</span>
-          <span class="item-main"><span class="item-title">${esc(s.title)}</span><span class="item-sub">${esc(s.artist) || 'Artista não informado'}</span></span>
+          ${cover(s)}
+          <span class="item-main"><span class="item-title">${esc(s.title)}</span><span class="item-sub">${esc(s.artist) || 'Artista não informado'}${s.content ? '' : ' · sem cifra'}</span></span>
           ${s.key ? `<span class="key">${esc(s.key)}</span>` : ''}</button>`).join('')}</div>`
-          : `<div class="empty">${isAdmin() ? 'Nenhuma música ainda. Toque em “+ Música” para cadastrar.' : 'Nenhuma música cadastrada ainda.'}</div>`}
+          : `<div class="empty">${isAdmin() ? 'Nenhuma música ainda. Toque em “+ Música” para buscar e adicionar.' : 'Nenhuma música cadastrada ainda.'}</div>`}
       </div>${isAdmin() ? fab('newSong', 'Música') : ''}`;
+    },
+  },
+
+  buscarMusica: {
+    load: async () => ({ songs: await S.api.songs(S.mid) }),
+    view: ({ songs }) => {
+      const q = S.search;
+      const have = new Set(songs.map((s) => (s.title + '|' + s.artist).toLowerCase()));
+      let body;
+      if (q.loading) body = '<div class="empty">Buscando…</div>';
+      else if (q.error) body = `<div class="error">${esc(q.error)}</div>`;
+      else if (!q.term) body = `<div class="empty">Digite o nome da música ou do artista. Toque em ${icon('play', 16, 'style="vertical-align:-3px"')} para ouvir um trecho e confirmar a versão.</div>`;
+      else if (!q.results.length) body = '<div class="empty">Nada encontrado. Confira o nome ou cadastre manualmente.</div>';
+      else {
+        body = `<div class="list">${q.results.map((r, i) => {
+          const dup = have.has((r.title + '|' + r.artist).toLowerCase());
+          const playing = S.playing && S.playing === r.preview;
+          return `<div class="item static">
+            <button class="item-pick" data-act="pickResult" data-i="${i}">
+              ${cover(r)}
+              <span class="item-main"><span class="item-title">${esc(r.title)}</span>
+              <span class="item-sub">${esc(r.artist)}${r.duration ? ' · ' + fmtDuration(r.duration) : ''}</span>
+              ${dup ? '<span class="tag neutral" style="align-self:flex-start">Já está no repertório</span>' : ''}</span></button>
+            ${r.preview ? `<button class="icon-btn play ${playing ? 'on' : ''}" data-act="preview" data-url="${esc(r.preview)}" aria-label="${playing ? 'Parar' : 'Ouvir trecho de'} ${esc(r.title)}">${icon(playing ? 'pause' : 'play', 20)}</button>` : ''}
+          </div>`;
+        }).join('')}</div>`;
+      }
+      return `<div class="scroll">${backBtn()}${header('Adicionar música')}
+        <form class="search" data-form="buscar" role="search">${icon('search', 20)}
+          <label class="sr-only" for="busca-musica">Música ou artista</label>
+          <input id="busca-musica" type="search" name="q" value="${esc(q.term)}" placeholder="Música ou artista" autocomplete="off" ${q.term ? '' : 'autofocus'}>
+          <button class="btn link small">Buscar</button></form>
+        ${body}
+        <button class="btn outline block" data-act="open" data-screen="musicaForm">${icon('edit', 18)}Cadastrar manualmente</button></div>`;
     },
   },
 
   musica: {
     load: async ({ id }) => ({ s: await S.api.song(id) }),
-    view: ({ s }) => {
+    view: ({ s }, params) => {
       if (!s) return `<div class="scroll">${backBtn()}<div class="empty">Esta música foi apagada.</div></div>`;
+      const admin = isAdmin();
+      const orig = s.key || detectKey(s.content);
+      const sv = songView(s, params, orig);
+      const shown = sv.key || orig;
+      const steps = orig && shown ? semitonesBetween(orig, shown) : 0;
+      const text = transposeText(s.content, steps, shown);
+      const links = songLinks(s.title, s.artist);
+      const yt = /youtu/.test(s.link) ? s.link : links.youtube;
+      const sp = /spotify/.test(s.link) ? s.link : links.spotify;
+      const keyList = parseKey(orig)?.minor ? MINOR_KEYS : MAJOR_KEYS;
+      const fromEvent = params.es && params.key !== undefined;
+      const meta = [s.artist, fmtDuration(s.duration), s.bpm ? `${s.bpm} BPM` : ''].filter(Boolean).join(' · ');
       return `<div class="scroll"><div class="section-head">${backBtn()}
-        ${isAdmin() ? `<div style="display:flex;gap:4px"><button class="icon-btn" data-act="open" data-screen="musicaForm" data-id="${s.id}" aria-label="Editar música">${icon('edit', 20)}</button>
+        ${admin ? `<div style="display:flex;gap:4px"><button class="icon-btn" data-act="open" data-screen="musicaForm" data-id="${s.id}" aria-label="Editar música">${icon('edit', 20)}</button>
           <button class="icon-btn" data-act="delSong" data-id="${s.id}" aria-label="Apagar música">${icon('trash', 20)}</button></div>` : ''}</div>
-        <div class="topbar"><div class="title-block grow"><h1 class="h1">${esc(s.title)}</h1><p class="sub">${esc(s.artist)}</p></div>
-          ${s.key ? `<span class="key" style="font-size:16px;padding:6px 14px">${esc(s.key)}</span>` : ''}</div>
-        ${s.link ? `<a class="btn outline block" href="${esc(/^https?:\/\//i.test(s.link) ? s.link : 'https://' + s.link)}" target="_blank" rel="noopener">${icon('link', 18)}Ouvir / assistir</a>` : ''}
-        ${s.content ? `<div class="card"><pre class="pre">${esc(s.content)}</pre></div>`
-          : `<div class="empty">${isAdmin() ? 'Sem letra ou cifra. Toque no lápis para adicionar.' : 'Sem letra ou cifra cadastrada.'}</div>`}
+        <div class="song-head">${cover(s, 'lg')}<div class="title-block grow" style="min-width:0"><h1 class="h1">${esc(s.title)}</h1><p class="sub">${esc(meta)}</p></div></div>
+        <div class="link-row">
+          <a class="chip-link" href="${esc(links.cifra)}" target="_blank" rel="noopener">${icon('doc', 18)}Cifra Club</a>
+          <a class="chip-link" href="${esc(yt)}" target="_blank" rel="noopener">${icon('play', 18)}YouTube</a>
+          <a class="chip-link" href="${esc(sp)}" target="_blank" rel="noopener">${icon('music', 18)}Spotify</a></div>
+        ${orig ? `<div class="card key-card">
+          <div class="key-row"><span class="h2">Tom</span>
+            <button class="icon-btn" data-act="keyStep" data-v="-1" aria-label="Meio tom abaixo">${icon('minus', 20)}</button>
+            <label class="sr-only" for="tom-musica">Escolher tom</label>
+            <select id="tom-musica" class="input key-select" data-change="songKey">${keyList.map((k) => `<option ${k === shiftKey(shown, 0) ? 'selected' : ''}>${k}</option>`).join('')}</select>
+            <button class="icon-btn" data-act="keyStep" data-v="1" aria-label="Meio tom acima">${icon('plus', 20)}</button></div>
+          <p class="item-sub" style="margin:0">${fromEvent ? `Tom do culto: <strong>${esc(params.key || orig)}</strong> · ` : ''}Tom original: ${esc(orig)}${steps ? ` · ${steps <= 6 ? '+' + steps : '−' + (12 - steps)} semitons` : ''}</p>
+          ${admin && fromEvent && shown !== (params.key || orig) ? `<button class="btn primary small" data-act="useKeyEvent" data-v="${esc(shown)}">Usar ${esc(shown)} neste culto</button>` : ''}
+          ${admin && !fromEvent && shown !== orig && s.content ? `<button class="btn outline small" data-act="saveKeyDefault" data-v="${esc(shown)}">Salvar ${esc(shown)} como tom padrão</button>` : ''}
+        </div>` : ''}
+        ${s.content ? `<div class="cifra-tools">
+            <div class="seg" role="group" aria-label="Mostrar"><button data-act="lyrics" data-v="0" aria-pressed="${!sv.lyrics}">Cifra</button><button data-act="lyrics" data-v="1" aria-pressed="${sv.lyrics}">Só letra</button></div>
+            <button class="icon-btn" data-act="fontSize" data-v="-1" aria-label="Diminuir letra">A−</button>
+            <button class="icon-btn" data-act="fontSize" data-v="1" aria-label="Aumentar letra">A+</button></div>
+          <div class="card cifra-card"><pre class="cifra" style="font-size:${sv.size}px">${renderCifra(text, { lyricsOnly: sv.lyrics })}</pre></div>`
+          : `<div class="empty">Ainda sem cifra.${admin ? `<br><br><button class="btn primary" data-act="open" data-screen="musicaForm" data-id="${s.id}">Adicionar cifra</button>` : ''}</div>`}
       </div>`;
     },
   },
 
   musicaForm: {
     load: async ({ id }) => ({ s: id ? await S.api.song(id) : null }),
-    view: ({ s }) => {
-      const v = s || { title: '', artist: '', key: '', link: '', content: '' };
+    view: ({ s }, params) => {
+      const v = s || params.prefill || { title: '', artist: '', key: '', link: '', content: '' };
+      const keys = [...MAJOR_KEYS, ...MINOR_KEYS];
+      if (v.key && !keys.includes(v.key)) keys.unshift(v.key);
       return `<div class="scroll">${backBtn()}${header(s ? 'Editar música' : 'Nova música')}
         <form class="form" data-form="musica" data-id="${s ? s.id : ''}">
-          <label class="field"><span>Nome da música</span><input class="input" name="title" required maxlength="80" value="${esc(v.title)}" ${s ? '' : 'autofocus'}></label>
-          <label class="field"><span>Artista</span><input class="input" name="artist" maxlength="80" value="${esc(v.artist)}"></label>
-          <label class="field"><span>Tom</span><select class="input" name="key"><option value="">Não informado</option>
-            ${KEYS.map((k) => `<option ${k === v.key ? 'selected' : ''}>${k}</option>`).join('')}</select></label>
-          <label class="field"><span>Link do YouTube ou Spotify <small>(opcional)</small></span>
-            <input class="input" name="link" type="url" inputmode="url" maxlength="300" placeholder="https://" value="${esc(v.link)}"></label>
-          <label class="field"><span>Letra ou cifra <small>(opcional)</small></span>
-            <textarea class="input mono" name="content" maxlength="20000">${esc(v.content)}</textarea></label>
-          <button class="btn primary block">${s ? 'Salvar alterações' : 'Cadastrar música'}</button></form></div>`;
+          ${v.artwork ? `<div class="song-head">${cover(v, 'lg')}<p class="sub">${esc(v.album || '')}${v.duration ? (v.album ? ' · ' : '') + fmtDuration(v.duration) : ''}</p></div>` : ''}
+          <input type="hidden" name="artwork" value="${esc(v.artwork || '')}"><input type="hidden" name="duration" value="${esc(v.duration || '')}">
+          <label class="field"><span>Nome da música</span><input class="input" name="title" required maxlength="120" value="${esc(v.title)}" ${v.title ? '' : 'autofocus'}></label>
+          <label class="field"><span>Artista</span><input class="input" name="artist" maxlength="120" value="${esc(v.artist)}"></label>
+          <div class="card form" style="background:var(--blue-soft)">
+            <h2 class="h2">Cifra e letra</h2>
+            <p class="sub" style="color:var(--ink)">Abra a música no Cifra Club, copie a cifra inteira e cole aqui. O Asa reconhece o tom e troca os acordes para o tom que você escolher.</p>
+            <div style="display:flex;gap:10px;flex-wrap:wrap">
+              <button type="button" class="btn white grow" data-act="openCifra">${icon('doc', 18)}Abrir no Cifra Club</button>
+              <button type="button" class="btn white grow" data-act="pasteCifra">${icon('clip', 18)}Colar</button></div>
+            <label class="field"><span class="sr-only">Cifra</span>
+              <textarea class="input mono" name="content" maxlength="30000" data-detect="key" placeholder="Cole a cifra aqui">${esc(v.content || '')}</textarea>
+              <small data-key-hint>${v.content && !v.key ? 'Tom detectado: ' + esc(detectKey(v.content)) : ''}</small></label>
+          </div>
+          <div style="display:flex;gap:12px">
+            <label class="field grow"><span>Tom da cifra</span><select class="input" name="key" data-auto="${v.key ? '0' : '1'}"><option value="">Detectar pela cifra</option>
+              ${keys.map((k) => `<option ${k === v.key ? 'selected' : ''}>${k}</option>`).join('')}</select></label>
+            <label class="field" style="width:110px"><span>BPM</span><input class="input" name="bpm" type="number" inputmode="numeric" min="0" max="300" value="${esc(v.bpm || '')}"></label></div>
+          <label class="field"><span>Link da versão no YouTube ou Spotify <small>(opcional)</small></span>
+            <input class="input" name="link" type="url" inputmode="url" maxlength="300" placeholder="https://" value="${esc(v.link || '')}"></label>
+          <button class="btn primary block">${s ? 'Salvar alterações' : 'Salvar no repertório'}</button></form></div>`;
     },
   },
 
@@ -646,10 +759,63 @@ const ACTIONS = {
   tab: (d) => { S.tab = d.tab; S.stack = []; refresh(); },
   back: () => back(),
   reload: () => refresh(),
-  open: (d) => push(d.screen, { id: d.id }),
+  open: (d) => push(d.screen, { id: d.id, key: d.key, es: d.es }),
   past: (d) => { S.escalasPast = d.v === '1'; refresh(); },
   newEvent: () => push('eventoForm', {}),
-  newSong: () => push('musicaForm', {}),
+  newSong: () => { S.search = { term: '', results: [], loading: false, error: '' }; push('buscarMusica', {}); },
+  pickResult: (d) => push('musicaForm', { prefill: S.search.results[Number(d.i)] }),
+  preview: (d) => {
+    if (S.playing === d.url) { stopAudio(); return repaint(); }
+    stopAudio();
+    audio = new Audio(d.url);
+    S.playing = d.url;
+    audio.onended = () => { S.playing = null; audio = null; repaint(); };
+    audio.play().catch(() => { stopAudio(); toast('Não foi possível tocar o trecho.'); repaint(); });
+    repaint();
+  },
+  openCifra: (d, el) => {
+    const f = el.closest('form');
+    const url = songLinks(f.elements.title.value, f.elements.artist.value).cifra;
+    window.open(url, '_blank', 'noopener');
+  },
+  pasteCifra: async (d, el) => {
+    const area = el.closest('form').elements.content;
+    try {
+      const text = await navigator.clipboard.readText();
+      if (!text.trim()) throw new Error('vazio');
+      area.value = text;
+      area.dispatchEvent(new Event('input', { bubbles: true }));
+      toast('Cifra colada.');
+    } catch {
+      area.focus();
+      toast('Toque e segure no campo e escolha Colar.');
+    }
+  },
+  keyStep: (d) => { const sv = S.songView; sv.key = shiftKey(sv.key, Number(d.v)); repaint(); },
+  lyrics: (d) => { S.songView.lyrics = d.v === '1'; repaint(); },
+  fontSize: (d) => {
+    const sv = S.songView;
+    sv.size = Math.min(26, Math.max(11, sv.size + Number(d.v)));
+    try { localStorage.setItem('asa-cifra-size', String(sv.size)); } catch { /* ignore */ }
+    repaint();
+  },
+  useKeyEvent: async (d) => {
+    const cur = current();
+    if (await run(() => S.api.updateEventSong(cur.params.es, { key: d.v }), `Tom ${d.v} definido para este culto.`)) {
+      cur.params.key = d.v;
+      S.songView.forKey = d.v;
+      refresh({ keepScroll: true });
+    }
+  },
+  saveKeyDefault: async (d) => {
+    const s = S.view.data.s;
+    const orig = s.key || detectKey(s.content);
+    const content = transposeText(s.content, semitonesBetween(orig, d.v), d.v);
+    if (await run(() => S.api.saveSongKey(s.id, d.v, content), `Música salva em ${d.v}.`)) {
+      S.songView.key = d.v;
+      refresh({ keepScroll: true });
+    }
+  },
   fillTitle: (d, el) => { const input = el.form.elements.title; input.value = d.v; input.focus(); },
 
   demoLogin: async () => { await S.api.auth.signIn(); refresh(); },
@@ -753,9 +919,29 @@ const FORMS = {
     const id = el.dataset.id || null;
     let saved;
     const ok = await run(async () => {
-      saved = await S.api.saveSong({ id, ministry_id: S.mid, title: f.get('title'), artist: f.get('artist'), key: f.get('key'), link: f.get('link'), content: f.get('content') });
-    }, id ? 'Música atualizada.' : 'Música cadastrada.');
-    if (ok) { if (id) back(); else replace('musica', { id: saved.id }); }
+      const content = f.get('content') || '';
+      saved = await S.api.saveSong({
+        id, ministry_id: S.mid, title: f.get('title'), artist: f.get('artist'),
+        key: f.get('key') || detectKey(content), link: f.get('link'), content,
+        artwork: f.get('artwork'), duration: f.get('duration'), bpm: f.get('bpm'),
+      });
+    }, id ? 'Música atualizada.' : 'Música salva no repertório.');
+    if (!ok) return;
+    S.songView = null;
+    if (id) return back();
+    while (S.stack.length && ['musicaForm', 'buscarMusica'].includes(current().name)) S.stack.pop();
+    push('musica', { id: saved.id });
+  },
+  buscar: async (f) => {
+    const term = (f.get('q') || '').trim();
+    if (!term) return;
+    stopAudio();
+    S.search = { term, results: [], loading: true, error: '' };
+    repaint();
+    try { S.search.results = await searchSongs(term); }
+    catch (e) { S.search.error = e.message; }
+    S.search.loading = false;
+    if (current().name === 'buscarMusica') repaint();
   },
   funcao: async (f) => { if (await run(() => S.api.addRole(S.mid, f.get('name')), 'Função adicionada.')) refresh({ keepScroll: true }); },
   aviso: async (f) => {
@@ -783,7 +969,21 @@ function wire() {
     try { await FORMS[form.dataset.form](new FormData(form), form); }
     finally { if (btn && document.body.contains(btn)) btn.disabled = false; }
   });
+  document.addEventListener('change', (e) => {
+    const el = e.target;
+    if (el.dataset.change === 'songKey') { S.songView.key = el.value; repaint(); }
+    if (el.name === 'key' && el.dataset.auto) el.dataset.auto = el.value ? '0' : '1';
+  });
   document.addEventListener('input', (e) => {
+    const area = e.target.closest('[data-detect="key"]');
+    if (area) {
+      const k = detectKey(area.value);
+      const sel = area.form.elements.key;
+      const hint = area.form.querySelector('[data-key-hint]');
+      if (k && sel.dataset.auto === '1') sel.value = k;
+      if (hint) hint.textContent = k ? `Tom detectado: ${k}` : '';
+      return;
+    }
     const input = e.target.closest('[data-filter]');
     if (!input) return;
     const q = input.value.trim().toLowerCase();

@@ -158,3 +158,33 @@ textarea.input.mono { font-family: ui-monospace, 'SF Mono', Menlo, monospace; fo
 .brand { display: flex; flex-direction: column; align-items: center; gap: 14px; text-align: center; }
 .brand .h1 { font-size: 34px; }
 .sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+
+/* ---------- Músicas ---------- */
+.cover { width: 48px; height: 48px; border-radius: 10px; object-fit: cover; flex-shrink: 0; background: var(--blue-soft); }
+.cover.lg { width: 76px; height: 76px; border-radius: 14px; }
+.cover-empty { display: inline-flex; align-items: center; justify-content: center; color: var(--blue); }
+.item-pick { flex: 1; min-width: 0; display: flex; align-items: center; gap: 12px; border: 0; background: none; padding: 0; text-align: left; cursor: pointer; color: inherit; font: inherit; }
+.icon-btn.play { color: var(--blue); background: var(--blue-soft); border-radius: 50%; }
+.icon-btn.play.on { background: var(--blue); color: #fff; }
+.song-head { display: flex; align-items: center; gap: 14px; }
+.song-head .h1 { font-size: 24px; }
+.link-row { display: flex; gap: 8px; flex-wrap: wrap; }
+.chip-link { display: inline-flex; align-items: center; gap: 6px; padding: 9px 14px; border-radius: 20px; background: #fff; border: 1px solid var(--blue-line); color: var(--ink); font-size: 14px; font-weight: 600; text-decoration: none; min-height: 40px; }
+.chip-link svg { color: var(--blue); }
+.key-card { display: flex; flex-direction: column; gap: 10px; }
+.key-row { display: flex; align-items: center; gap: 6px; }
+.key-row .h2 { flex: 1; }
+.key-select { width: auto; min-width: 96px; text-align: center; font-weight: 800; color: var(--blue); padding: 10px 12px; }
+.key-row .icon-btn { background: var(--blue-soft); color: var(--blue); }
+.cifra-tools { display: flex; align-items: center; gap: 6px; }
+.cifra-tools .seg { flex: 1; }
+.cifra-tools .icon-btn { font-weight: 800; color: var(--ink); background: #fff; }
+.cifra-card { overflow-x: auto; }
+.cifra { margin: 0; font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace; line-height: 1.55; white-space: pre; color: var(--ink); }
+.cifra .ch { color: var(--blue); font-weight: 700; }
+.cifra .part { font-weight: 800; }
+.cifra .tab { color: var(--muted); }
+.link-row { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.chip-link { justify-content: center; padding: 9px 8px; font-size: 13px; }
+.search svg { color: var(--muted); flex-shrink: 0; }
+.search .btn.link { padding: 8px 4px; }
