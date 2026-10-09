@@ -12,15 +12,15 @@
   <link rel="manifest" href="manifest.webmanifest">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;600;700;800&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="styles.css">
+  <link rel="stylesheet" href="styles.css?v=8">
 </head>
 <body>
   <div id="app"><div class="boot">Carregando…</div></div>
-  <script src="config.js"></script>
-  <script type="module" src="app.js"></script>
+  <script src="config.js?v=8"></script>
+  <script type="module" src="app.js?v=8"></script>
   <script>
     if ('serviceWorker' in navigator && location.protocol === 'https:') {
-      navigator.serviceWorker.register('sw.js').catch(() => {});
+      navigator.serviceWorker.register('sw.js', { updateViaCache: 'none' }).catch(() => {});
     }
   </script>
 </body>

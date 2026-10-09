@@ -1,9 +1,9 @@
 // Asa — telas e navegação do app.
-import { createApi, demoAdapter, supabaseAdapter, todayISO, addDays } from './data.js';
+import { createApi, demoAdapter, supabaseAdapter, todayISO, addDays } from './data.js?v=8';
 import {
   MAJOR_KEYS, MINOR_KEYS, parseKey, shiftKey, semitonesBetween, transposeText, detectKey,
   renderCifra, songLinks, fmtDuration, searchSongs, cifraClubLinks, findAudio,
-} from './music.js';
+} from './music.js?v=8';
 
 const LINK_FIELDS = [
   ['cifra', 'Cifra', 'doc'],

@@ -183,7 +183,8 @@ async function searchApple(term) {
 export async function searchSongs(term) {
   const [dz, ap] = await Promise.allSettled([searchDeezer(term), searchApple(term)]);
   if (dz.status === 'rejected' && ap.status === 'rejected') {
-    throw new Error('Não foi possível buscar agora. Confira a internet e tente de novo.');
+    const why = (r) => (r.reason && (r.reason.name === 'AbortError' ? 'demorou demais' : r.reason.message)) || 'erro';
+    throw new Error(`A busca não respondeu (Deezer: ${why(dz)}; Apple: ${why(ap)}). Tente de novo em instantes.`);
   }
   const seen = new Set();
   const list = [];
@@ -228,10 +229,10 @@ function jsonp(url, ms = 8000) {
   return new Promise((resolve, reject) => {
     const cb = 'asaJ' + Date.now() + Math.floor(Math.random() * 1e5);
     const s = document.createElement('script');
-    const timer = setTimeout(() => { done(); reject(new Error('timeout')); }, ms);
+    const timer = setTimeout(() => { done(); reject(new Error('demorou demais')); }, ms);
     function done() { clearTimeout(timer); delete window[cb]; s.remove(); }
     window[cb] = (d) => { done(); resolve(d); };
-    s.onerror = () => { done(); reject(new Error('erro')); };
+    s.onerror = () => { done(); reject(new Error('bloqueado ou fora do ar')); };
     s.src = url + (url.includes('?') ? '&' : '?') + 'output=jsonp&callback=' + cb;
     document.head.appendChild(s);
   });
