@@ -806,9 +806,9 @@ const ACTIONS = {
   pickResult: (d) => {
     const r = { ...S.search.results[Number(d.i)] };
     const cc = cifraClubLinks(r.title, r.artist);
-    r.links = { cifra: cc.cifra, letra: cc.letra, audio: '', video: '' };
+    r.links = { cifra: cc.cifra, letra: cc.letra, audio: r.audio || '', video: '' };
     push('musicaForm', { prefill: r });
-    findAudio(r.title, r.artist).then((a) => {
+    findAudio(r.title, r.artist, r.deezerId).then((a) => {
       if (!a) return;
       r.links.audio = a.audio;
       if (a.bpm) r.bpm = a.bpm;

@@ -145,37 +145,61 @@ export function fmtDuration(sec) {
   return `${Math.floor(sec / 60)}:${String(sec % 60).padStart(2, '0')}`;
 }
 
-// Busca no catálogo público da Apple (sem chave, funciona direto do celular).
-export function searchSongs(term) {
-  return new Promise((resolve, reject) => {
-    const cb = 'asaBusca' + Date.now() + Math.floor(Math.random() * 1e4);
-    const script = document.createElement('script');
-    const timer = setTimeout(() => { done(); reject(new Error('A busca demorou demais. Tente de novo.')); }, 12000);
-    function done() { clearTimeout(timer); delete window[cb]; script.remove(); }
-    window[cb] = (data) => {
-      done();
-      const seen = new Set();
-      const list = [];
-      for (const r of data.results || []) {
-        if (r.kind !== 'song') continue;
-        const id = (r.trackName + '|' + r.artistName).toLowerCase();
-        if (seen.has(id)) continue;
-        seen.add(id);
-        list.push({
-          title: r.trackName,
-          artist: r.artistName,
-          album: r.collectionName || '',
-          artwork: (r.artworkUrl100 || '').replace('100x100bb', '300x300bb'),
-          duration: Math.round((r.trackTimeMillis || 0) / 1000),
-          preview: r.previewUrl || '',
-        });
-      }
-      resolve(list);
-    };
-    script.onerror = () => { done(); reject(new Error('Não foi possível buscar agora. Confira a internet.')); };
-    script.src = `https://itunes.apple.com/search?term=${encodeURIComponent(term)}&country=BR&media=music&entity=song&limit=25&callback=${cb}`;
-    document.head.appendChild(script);
-  });
+// Busca em dois catálogos ao mesmo tempo (Deezer e Apple). Se um falhar no aparelho, o outro resolve.
+async function searchDeezer(term) {
+  const res = await jsonp(`https://api.deezer.com/search?q=${encodeURIComponent(term)}&limit=25`);
+  if (res && res.error) throw new Error('deezer');
+  return (res.data || []).map((r) => ({
+    title: r.title,
+    artist: r.artist?.name || '',
+    album: r.album?.title || '',
+    artwork: r.album?.cover_big || r.album?.cover_medium || '',
+    duration: r.duration || 0,
+    preview: r.preview || '',
+    audio: r.link || '',
+    deezerId: r.id,
+  }));
+}
+
+async function searchApple(term) {
+  const url = `https://itunes.apple.com/search?term=${encodeURIComponent(term)}&country=BR&media=music&entity=song&limit=25`;
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), 9000);
+  try {
+    const data = await (await fetch(url, { signal: ctrl.signal })).json();
+    return (data.results || []).filter((r) => r.kind === 'song').map((r) => ({
+      title: r.trackName,
+      artist: r.artistName,
+      album: r.collectionName || '',
+      artwork: (r.artworkUrl100 || '').replace('100x100bb', '300x300bb'),
+      duration: Math.round((r.trackTimeMillis || 0) / 1000),
+      preview: r.previewUrl || '',
+    }));
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+export async function searchSongs(term) {
+  const [dz, ap] = await Promise.allSettled([searchDeezer(term), searchApple(term)]);
+  if (dz.status === 'rejected' && ap.status === 'rejected') {
+    throw new Error('Não foi possível buscar agora. Confira a internet e tente de novo.');
+  }
+  const seen = new Set();
+  const list = [];
+  // Intercala os dois catálogos, Deezer primeiro, sem repetir a mesma música do mesmo artista.
+  const a = dz.status === 'fulfilled' ? dz.value : [];
+  const b = ap.status === 'fulfilled' ? ap.value : [];
+  for (let i = 0; i < Math.max(a.length, b.length); i++) {
+    for (const r of [a[i], b[i]]) {
+      if (!r || !r.title) continue;
+      const id = norm(r.title.replace(/\(.*?\)/g, '')) + '|' + norm(mainArtist(r.artist));
+      if (seen.has(id)) continue;
+      seen.add(id);
+      list.push(r);
+    }
+  }
+  return list.slice(0, 30);
 }
 
 // ---------- Preenchimento automático de links ----------
@@ -216,8 +240,12 @@ function jsonp(url, ms = 8000) {
 const norm = (s) => slug(s).replace(/-/g, ' ');
 
 // Link exato da faixa no Deezer (para ouvir) e o BPM, quando o Deezer tiver.
-export async function findAudio(title, artist) {
+export async function findAudio(title, artist, deezerId) {
   try {
+    if (deezerId) {
+      const t = await jsonp(`https://api.deezer.com/track/${deezerId}`);
+      return { audio: t.link || '', bpm: Math.round(t.bpm || 0) };
+    }
     const q = encodeURIComponent(`${title.replace(/\(.*?\)/g, '')} ${mainArtist(artist)}`.trim());
     const res = await jsonp(`https://api.deezer.com/search?q=${q}&limit=10`);
     const list = res.data || [];
