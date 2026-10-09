@@ -157,6 +157,10 @@ export function demoAdapter(storage = globalThis.localStorage) {
         if (!a || a.user_id !== user) throw new Error('Esta escala não é sua.');
         a.status = args.p_status; save(); return null;
       }
+      if (name === 'delete_my_account') {
+        db = seed(); save();
+        return null;
+      }
       throw new Error('Função desconhecida: ' + name);
     },
     auth: {
@@ -277,6 +281,7 @@ export function createApi(a) {
         .map((x) => ({ ...x, myRole: ms.find((m) => m.ministry_id === x.id).role }))
         .sort(byName);
     },
+    deleteAccount: () => a.rpc('delete_my_account', {}),
     createMinistry: (name) => a.rpc('create_ministry', { p_name: name.trim() }),
     joinMinistry: (code) => a.rpc('join_ministry', { p_code: code.trim().toUpperCase() }),
 

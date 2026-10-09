@@ -1,10 +1,10 @@
 // Asa — telas e navegação do app.
-import { createApi, demoAdapter, supabaseAdapter, todayISO, addDays, artsOf } from './data.js?v=14';
+import { createApi, demoAdapter, supabaseAdapter, todayISO, addDays, artsOf } from './data.js?v=15';
 import {
   MAJOR_KEYS, MINOR_KEYS, parseKey, shiftKey, semitonesBetween, transposeText, detectKey,
   renderCifra, songLinks, fmtDuration, searchSongs, cifraClubLinks, findAudio,
-} from './music.js?v=14';
-import { drawArt, defaultArt, THEMES, FORMATS, loadImage } from './art.js?v=14';
+} from './music.js?v=15';
+import { drawArt, defaultArt, THEMES, FORMATS, loadImage } from './art.js?v=15';
 
 const LINK_FIELDS = [
   ['cifra', 'Cifra', 'doc'],
@@ -173,7 +173,8 @@ function modal(inner) {
 }
 
 function ask(message) {
-  const label = message.startsWith('Sair') ? 'Sair' : message.startsWith('Remover') ? 'Remover' : 'Apagar';
+  const label = message.startsWith('Sair') ? 'Sair' : message.startsWith('Remover') ? 'Remover'
+    : /^(Excluir|Tem certeza)/.test(message) ? 'Excluir' : 'Apagar';
   return new Promise((resolve) => {
     const wrap = modal(`<p class="modal-text">${esc(message)}</p>
       <div class="modal-actions"><button class="btn outline grow" data-r="0">Cancelar</button>
@@ -1065,7 +1066,13 @@ const SCREENS = {
         <label class="field"><span>Aniversário <small>(aparece para o ministério)</small></span>
           <input class="input" name="birthday" type="date" value="${esc(S.profile.birthday || '')}"></label>
         ${S.user.email ? `<p class="sub">Conta: ${esc(S.user.email)}</p>` : ''}
-        <button class="btn primary block">Salvar</button></form></div>`,
+        <button class="btn primary block">Salvar</button></form>
+      <div class="section" style="margin-top:12px">
+        <h2 class="h2">Privacidade</h2>
+        <a class="btn link" href="privacidade.html" target="_blank" rel="noopener" style="justify-content:flex-start">Política de privacidade</a>
+        <button class="btn danger block" data-act="deleteAccount">${icon('trash', 18)}Excluir minha conta</button>
+        <p class="item-sub" style="margin:0">Apaga seu perfil, suas escalas e seus avisos. Os ministérios que você criou passam para outro administrador.</p>
+      </div></div>`,
   },
 
   ministerios: {
@@ -1106,6 +1113,21 @@ const ACTIONS = {
     const settings = { ...e.settings };
     if (e.photoImg === null) settings.photo = '';
     if (await run(() => S.api.saveEventArt(ev, e.kind, settings, e.photoBlob), 'Arte salva.')) { S.artEdit = null; back(); }
+  },
+  deleteAccount: async () => {
+    if (!(await ask('Excluir sua conta? Seu perfil, suas escalas e seus avisos serão apagados para sempre.'))) return;
+    if (!(await ask('Tem certeza? Isso não pode ser desfeito.'))) return;
+    try {
+      await S.api.deleteAccount();
+      await S.api.auth.signOut().catch(() => {});
+      clearSnap(); screenCache.clear(); invalidate();
+      ['asa-mid', 'asa-email', 'asa-login-sent'].forEach((k) => store.set(k, null));
+      S.stack = []; S.tab = 'inicio'; S.md = null; S.mid = null;
+      toast('Sua conta foi excluída.');
+      refresh();
+    } catch (e) {
+      toast(friendly(e.message));
+    }
   },
   removeBanner: async () => {
     if (!(await ask('Tirar o flyer e voltar à capa automática?'))) return;
