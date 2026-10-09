@@ -166,6 +166,15 @@ export function demoAdapter(storage = globalThis.localStorage) {
       onChange(cb) { listeners.push(cb); },
     },
     reset() { db = seed(); db.session = 'me'; save(); },
+    storage: {
+      upload: (path, blob) => new Promise((resolve, reject) => {
+        const r = new FileReader();
+        r.onload = () => resolve(r.result);
+        r.onerror = () => reject(new Error('Não foi possível ler a imagem.'));
+        r.readAsDataURL(blob);
+      }),
+      async remove() { /* no modo demonstração a imagem some junto com o evento */ },
+    },
   };
 }
 
@@ -213,6 +222,15 @@ export async function supabaseAdapter(cfg) {
       onChange(cb) { sb.auth.onAuthStateChange(() => cb()); },
     },
     reset: null,
+    storage: {
+      async upload(path, blob) {
+        ok(await sb.storage.from('banners').upload(path, blob, { contentType: 'image/jpeg', upsert: true, cacheControl: '31536000' }));
+        return sb.storage.from('banners').getPublicUrl(path).data.publicUrl;
+      },
+      async remove(paths) {
+        if (paths.length) ok(await sb.storage.from('banners').remove(paths));
+      },
+    },
   };
 }
 
@@ -220,7 +238,18 @@ export async function supabaseAdapter(cfg) {
 
 const byName = (a, b) => (a.name || '').localeCompare(b.name || '', 'pt-BR');
 
+// "https://…/object/public/banners/<ministério>/<arquivo>.jpg" -> "<ministério>/<arquivo>.jpg"
+export function bannerPath(url) {
+  const i = String(url || '').indexOf('/banners/');
+  if (i < 0 || String(url).startsWith('data:')) return null;
+  return decodeURIComponent(url.slice(i + 9).split('?')[0]);
+}
+
 export function createApi(a) {
+  // Apagar a imagem nunca deve travar o resto (se falhar, a faxina tenta de novo outro dia).
+  const removeBanners = async (urls) => {
+    try { await a.storage.remove(urls.map(bannerPath).filter(Boolean)); } catch (e) { console.warn('banner', e); }
+  };
   const api = {
     mode: a.mode,
     auth: a.auth,
@@ -286,7 +315,31 @@ export function createApi(a) {
       const fields = { title: ev.title.trim(), date: ev.date, time: ev.time, notes: (ev.notes || '').trim() };
       return ev.id ? a.update('events', ev.id, fields) : a.insert('events', { ministry_id: ev.ministry_id, ...fields });
     },
-    deleteEvent: (id) => a.remove('events', id),
+    async deleteEvent(id) {
+      const [ev] = await a.list('events', { id });
+      await a.remove('events', id);
+      if (ev && ev.banner) await removeBanners([ev.banner]);
+    },
+
+    // Banner do evento: guarda a imagem e o endereço; ao trocar, apaga a antiga.
+    async setEventBanner(ev, blob) {
+      const path = `${ev.ministry_id}/${ev.id}-${Date.now()}.jpg`;
+      const url = await a.storage.upload(path, blob);
+      await a.update('events', ev.id, { banner: url });
+      if (ev.banner) await removeBanners([ev.banner]);
+      return url;
+    },
+    async removeEventBanner(ev) {
+      await a.update('events', ev.id, { banner: '' });
+      await removeBanners([ev.banner]);
+    },
+    // Faxina: apaga os banners de eventos que já passaram (antes da data informada).
+    async cleanupBanners(mid, beforeIso) {
+      const old = (await a.list('events', { ministry_id: mid })).filter((e) => e.banner && e.date < beforeIso);
+      for (const e of old) await a.update('events', e.id, { banner: '' });
+      await removeBanners(old.map((e) => e.banner));
+      return old.length;
+    },
     assign: (row) => a.insert('assignments', { status: 'pending', ...row }),
     unassign: (id) => a.remove('assignments', id),
     setMyStatus: (id, status) => a.rpc('set_my_status', { p_id: id, p_status: status }),

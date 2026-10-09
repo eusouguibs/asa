@@ -1,9 +1,9 @@
 // Asa — telas e navegação do app.
-import { createApi, demoAdapter, supabaseAdapter, todayISO, addDays } from './data.js?v=9';
+import { createApi, demoAdapter, supabaseAdapter, todayISO, addDays } from './data.js?v=10';
 import {
   MAJOR_KEYS, MINOR_KEYS, parseKey, shiftKey, semitonesBetween, transposeText, detectKey,
   renderCifra, songLinks, fmtDuration, searchSongs, cifraClubLinks, findAudio,
-} from './music.js?v=9';
+} from './music.js?v=10';
 
 const LINK_FIELDS = [
   ['cifra', 'Cifra', 'doc'],
@@ -57,6 +57,7 @@ const I = {
   text: '<path d="M5 6h14M5 12h14M5 18h9"/>',
   bolt: '<path d="M13 2L4 14h7l-1 8 9-12h-7z"/>',
   ext: '<path d="M14 4h6v6M20 4l-9 9M18 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h5"/>',
+  image: '<rect x="3" y="4" width="18" height="16" rx="3"/><circle cx="9" cy="10" r="2"/><path d="M21 16l-5-5-9 9"/>',
   trash: '<path d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3"/>',
   search: '<circle cx="11" cy="11" r="7"/><path d="M20 20l-4-4"/>',
   mega: '<path d="M4 10v4h3l6 4V6L7 10z"/><path d="M17 9a4 4 0 0 1 0 6"/>',
@@ -221,6 +222,7 @@ async function refresh({ keepScroll = false } = {}) {
     if (!S.ministries.length) { S.view = { screen: 'semMinisterio' }; return paint(top); }
     if (!S.ministries.some((m) => m.id === S.mid)) { S.mid = S.ministries[0].id; store.set('asa-mid', S.mid); }
     S.md = await S.api.ministryData(S.mid);
+    cleanupOnceADay();
     const cur = current();
     const screen = SCREENS[cur.name];
     const data = screen.load ? await screen.load(cur.params || {}) : {};
@@ -230,6 +232,16 @@ async function refresh({ keepScroll = false } = {}) {
     S.view = { screen: 'erro', data: { message: e.message } };
   }
   paint(top);
+}
+
+// Uma vez por dia, quando um administrador abre o app, apaga banners de eventos de mais de 3 dias atrás.
+function cleanupOnceADay() {
+  if (!isAdmin() || S.api.mode !== 'supabase') return;
+  const key = 'asa-faxina-' + S.mid;
+  const today = todayISO();
+  if (store.get(key) === today) return;
+  store.set(key, today);
+  S.api.cleanupBanners(S.mid, addDays(today, -3)).catch((e) => console.warn('faxina', e));
 }
 
 function paint(scrollTop = 0) {
@@ -321,6 +333,47 @@ function whatsappText(ev) {
 
 const inviteLink = (code) => `${location.origin}${location.pathname}?convite=${encodeURIComponent(code)}`;
 
+// Banner na página da escala: imagem (toque para abrir em tamanho cheio) e, para admins, trocar/remover.
+function bannerBlock(ev, admin) {
+  const input = `<input type="file" accept="image/*" data-banner="${ev.id}" class="sr-only" id="banner-${ev.id}">`;
+  if (ev.banner) {
+    return `<div class="section">
+      <a href="${esc(ev.banner)}" target="_blank" rel="noopener" class="event-banner-link"><img class="event-banner" src="${esc(ev.banner)}" alt="Banner de ${esc(ev.title)}"></a>
+      ${admin ? `<div style="display:flex;gap:10px">
+        <label class="btn outline small grow" for="banner-${ev.id}">${icon('swap', 18)}Trocar banner</label>${input}
+        <button class="btn danger small" data-act="removeBanner">${icon('trash', 18)}Remover</button></div>`
+        : '<p class="item-sub" style="margin:0;text-align:center">Toque e segure na imagem para salvar.</p>'}</div>`;
+  }
+  return admin ? `<label class="banner-add" for="banner-${ev.id}">${icon('image', 26)}<span><strong>Adicionar banner do evento</strong><br>
+    <span class="item-sub">Aparece na agenda e é apagado sozinho 3 dias depois do evento.</span></span></label>${input}` : '';
+}
+
+// Reduz a foto no próprio celular (lado maior com 1280 px, JPG) antes de enviar.
+async function resizeImage(file, max = 1280) {
+  const url = URL.createObjectURL(file);
+  try {
+    const img = await new Promise((resolve, reject) => {
+      const i = new Image();
+      i.onload = () => resolve(i);
+      i.onerror = () => reject(new Error('Não foi possível abrir essa imagem. Tente outra.'));
+      i.src = url;
+    });
+    const scale = Math.min(1, max / Math.max(img.naturalWidth, img.naturalHeight));
+    const c = document.createElement('canvas');
+    c.width = Math.round(img.naturalWidth * scale);
+    c.height = Math.round(img.naturalHeight * scale);
+    const ctx = c.getContext('2d');
+    ctx.fillStyle = '#fff';
+    ctx.fillRect(0, 0, c.width, c.height);
+    ctx.drawImage(img, 0, 0, c.width, c.height);
+    const blob = await new Promise((resolve) => c.toBlob(resolve, 'image/jpeg', 0.82));
+    if (!blob) throw new Error('Não foi possível preparar a imagem.');
+    return blob;
+  } finally {
+    URL.revokeObjectURL(url);
+  }
+}
+
 // Agenda da tela inicial: eventos da semana ou do mês. Some quando não há nada marcado no mês.
 function agenda(events, assigns, today) {
   const weekEnd = addDays(today, 6);
@@ -341,11 +394,12 @@ function agenda(events, assigns, today) {
       const d = parseISO(e.date);
       const mine = assigns.find((a) => a.event_id === e.id && a.user_id === S.user.id);
       const n = assigns.filter((a) => a.event_id === e.id).length;
-      return `<button class="item" data-act="open" data-screen="evento" data-id="${e.id}">
+      return `<button class="item ${e.banner ? 'item-banner' : ''}" data-act="open" data-screen="evento" data-id="${e.id}">
+        ${e.banner ? `<img src="${esc(e.banner)}" alt="" loading="lazy">` : ''}<span class="item-row">
         <span class="date-block ${mine ? 'mine' : ''}" style="width:46px;padding:6px 0"><span>${WD[d.getDay()]}</span><span style="font-size:19px">${d.getDate()}</span></span>
         <span class="item-main"><span class="item-title">${esc(e.title)}</span>
           <span class="item-sub">${e.date === today ? 'Hoje' : e.date === addDays(today, 1) ? 'Amanhã' : MON[d.getMonth()]}${e.time ? ' · ' + fmtTime(e.time) : ''} · ${n ? `${n} ${n === 1 ? 'pessoa' : 'pessoas'}` : 'equipe a definir'}</span></span>
-        ${mine ? `<span class="tag pending">${esc(mine.role_name)}</span>` : ''}</button>`;
+        ${mine ? `<span class="tag pending">${esc(mine.role_name)}</span>` : ''}</span></button>`;
     }).join('')}</div></div>`;
 }
 
@@ -514,6 +568,7 @@ const SCREENS = {
           ${admin ? `<div style="display:flex;gap:4px"><button class="icon-btn" data-act="open" data-screen="eventoForm" data-id="${ev.id}" aria-label="Editar escala">${icon('edit', 20)}</button>
             <button class="icon-btn" data-act="delEvent" data-id="${ev.id}" aria-label="Apagar escala">${icon('trash', 20)}</button></div>` : ''}</div>
         ${header(ev.title, fmtLong(ev.date, ev.time))}
+        ${bannerBlock(ev, admin)}
         ${ev.notes ? `<div class="card notes">${esc(ev.notes)}</div>` : ''}
         <div class="section"><div class="section-head"><h2 class="h2">Equipe</h2><span class="item-sub">${ev.assignments.length ? `${ok} de ${ev.assignments.length} confirmados` : ''}</span></div>
           ${team.length ? `<div class="list">${team.map((a) => `<div class="item static">
@@ -831,6 +886,10 @@ const ACTIONS = {
   back: () => back(),
   reload: () => refresh(),
   open: (d) => push(d.screen, { id: d.id, key: d.key, es: d.es }),
+  removeBanner: async () => {
+    if (!(await ask('Remover o banner deste evento?'))) return;
+    if (await run(() => S.api.removeEventBanner(S.view.data.ev), 'Banner removido.')) refresh({ keepScroll: true });
+  },
   agenda: (d) => { S.agenda = d.v; repaint(); },
   past: (d) => { S.escalasPast = d.v === '1'; refresh(); },
   newEvent: () => push('eventoForm', {}),
@@ -1085,6 +1144,15 @@ function wire() {
   document.addEventListener('change', (e) => {
     const el = e.target;
     if (el.dataset.change === 'songKey') { S.songView.key = el.value; repaint(); }
+    if (el.dataset.banner && el.files && el.files[0]) {
+      const file = el.files[0];
+      const ev = S.view.data.ev;
+      toast('Enviando banner…');
+      run(async () => {
+        const blob = await resizeImage(file);
+        await S.api.setEventBanner(ev, blob);
+      }, 'Banner salvo.').then((ok) => { if (ok) refresh({ keepScroll: true }); });
+    }
     if (el.name === 'key' && el.dataset.auto) el.dataset.auto = el.value ? '0' : '1';
   });
   document.addEventListener('input', (e) => {
