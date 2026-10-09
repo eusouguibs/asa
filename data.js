@@ -318,7 +318,7 @@ export function createApi(a) {
     async deleteEvent(id) {
       const [ev] = await a.list('events', { id });
       await a.remove('events', id);
-      if (ev && ev.banner) await removeBanners([ev.banner]);
+      if (ev) await removeBanners([ev.banner, ev.art && ev.art.photo].filter(Boolean));
     },
 
     // Banner do evento: guarda a imagem e o endereço; ao trocar, apaga a antiga.
@@ -333,11 +333,25 @@ export function createApi(a) {
       await a.update('events', ev.id, { banner: '' });
       await removeBanners([ev.banner]);
     },
+    // Arte da escala: guarda os ajustes; a foto de fundo vai para a mesma pasta dos banners.
+    async saveEventArt(ev, art, photoBlob) {
+      const next = { ...art };
+      const oldPhoto = ev.art && ev.art.photo;
+      if (photoBlob) next.photo = await a.storage.upload(`${ev.ministry_id}/${ev.id}-fundo-${Date.now()}.jpg`, photoBlob);
+      await a.update('events', ev.id, { art: next });
+      if (oldPhoto && oldPhoto !== next.photo) await removeBanners([oldPhoto]);
+      return next;
+    },
+    async resetEventArt(ev) {
+      await a.update('events', ev.id, { art: null });
+      if (ev.art && ev.art.photo) await removeBanners([ev.art.photo]);
+    },
     // Faxina: apaga os banners de eventos que já passaram (antes da data informada).
     async cleanupBanners(mid, beforeIso) {
-      const old = (await a.list('events', { ministry_id: mid })).filter((e) => e.banner && e.date < beforeIso);
-      for (const e of old) await a.update('events', e.id, { banner: '' });
-      await removeBanners(old.map((e) => e.banner));
+      const old = (await a.list('events', { ministry_id: mid }))
+        .filter((e) => (e.banner || (e.art && e.art.photo)) && e.date < beforeIso);
+      for (const e of old) await a.update('events', e.id, e.art ? { banner: '', art: { ...e.art, photo: '' } } : { banner: '' });
+      await removeBanners(old.flatMap((e) => [e.banner, e.art && e.art.photo]).filter(Boolean));
       return old.length;
     },
     assign: (row) => a.insert('assignments', { status: 'pending', ...row }),

@@ -207,3 +207,15 @@ textarea.input.mono { font-family: ui-monospace, 'SF Mono', Menlo, monospace; fo
 .item-banner img { width: 100%; max-height: 220px; object-fit: cover; border-radius: 12px; background: #E7EBF5; }
 .item-row { display: flex; align-items: center; gap: 12px; width: 100%; }
 .item:not(.item-banner) > .item-row { display: contents; }
+
+/* ---------- Arte da escala ---------- */
+.art-frame { flex-shrink: 0; border-radius: var(--radius); overflow: hidden; background: radial-gradient(circle at 30% 50%, #1E5560, #050909 70%); max-width: 100%; width: 100%; }
+.art-img { display: block; width: 100%; height: 100%; object-fit: cover; }
+.art-frame:not(.ready) .art-img { opacity: 0; }
+.art-frame.ready .art-img { opacity: 1; transition: opacity .25s; }
+.theme-row { display: flex; gap: 8px; overflow-x: auto; padding-bottom: 4px; }
+.theme-chip { display: flex; flex-direction: column; align-items: center; gap: 6px; border: 0; background: none; font-size: 12px; font-weight: 600; color: var(--muted); cursor: pointer; min-width: 64px; }
+.theme-chip span { width: 52px; height: 52px; border-radius: 14px; border: 3px solid transparent; }
+.theme-chip[aria-pressed="true"] { color: var(--ink); }
+.theme-chip[aria-pressed="true"] span { box-shadow: 0 0 0 3px #fff, 0 0 0 5px var(--blue); }
+.check { width: 22px; height: 22px; accent-color: var(--blue); flex-shrink: 0; }

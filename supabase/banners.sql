@@ -1,9 +1,12 @@
--- Asa — banners dos eventos.
+-- Asa — banners e artes dos eventos.
 -- Como usar: no Supabase, abra "SQL Editor", cole todo este arquivo e clique em "Run".
 -- Pode rodar mais de uma vez sem problema.
 
 -- Endereço do banner de cada evento (vazio = sem banner).
 alter table public.events add column if not exists banner text not null default '';
+
+-- Ajustes da arte automática de cada escala (título, cores, formato, frase, foto de fundo).
+alter table public.events add column if not exists art jsonb;
 
 -- Pasta pública de imagens "banners": qualquer pessoa com o link vê a imagem;
 -- só aceita JPG, PNG ou WebP de até 2 MB.
