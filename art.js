@@ -18,8 +18,11 @@ const SERIF = "'Instrument Serif', 'Playfair Display', Georgia, 'Times New Roman
 
 export const STYLES = { cinema: 'Cinema', lista: 'Lista' };
 
-export function defaultArt() {
-  return { style: 'cinema', theme: 'noite', format: 'story', title: '', subtitle: '', phrase: '', place: '', showTeam: true, showSongs: true, photo: '' };
+// Duas artes por evento: "escala" (para a equipe, estilo Lista) e "capa" (para divulgar, estilo Cinema).
+export function defaultArt(kind = 'capa') {
+  return kind === 'escala'
+    ? { style: 'lista', theme: 'azul', format: 'post', title: '', subtitle: '', phrase: '', place: '', showTeam: true, showSongs: true, photo: '' }
+    : { style: 'cinema', theme: 'noite', format: 'story', title: '', subtitle: '', phrase: '', place: '', showTeam: false, showSongs: false, photo: '' };
 }
 
 function font(weight, size, style = '') { return `${style} ${weight} ${size}px ${FONT}`.trim(); }

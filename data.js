@@ -245,6 +245,15 @@ export function bannerPath(url) {
   return decodeURIComponent(url.slice(i + 9).split('?')[0]);
 }
 
+// Ajustes das artes do evento: { escala: {...}, capa: {...} } (aceita o formato antigo, de uma arte só).
+export function artsOf(art) {
+  if (!art) return {};
+  if (art.style || art.theme) return { [art.style === 'lista' ? 'escala' : 'capa']: art };
+  return { ...art };
+}
+const artPhotos = (art) => Object.values(artsOf(art)).map((x) => x && x.photo).filter(Boolean);
+const withoutPhotos = (art) => Object.fromEntries(Object.entries(artsOf(art)).map(([k, v]) => [k, { ...v, photo: '' }]));
+
 export function createApi(a) {
   // Apagar a imagem nunca deve travar o resto (se falhar, a faxina tenta de novo outro dia).
   const removeBanners = async (urls) => {
@@ -318,7 +327,7 @@ export function createApi(a) {
     async deleteEvent(id) {
       const [ev] = await a.list('events', { id });
       await a.remove('events', id);
-      if (ev) await removeBanners([ev.banner, ev.art && ev.art.photo].filter(Boolean));
+      if (ev) await removeBanners([ev.banner, ...artPhotos(ev.art)].filter(Boolean));
     },
 
     // Banner do evento: guarda a imagem e o endereço; ao trocar, apaga a antiga.
@@ -334,24 +343,28 @@ export function createApi(a) {
       await removeBanners([ev.banner]);
     },
     // Arte da escala: guarda os ajustes; a foto de fundo vai para a mesma pasta dos banners.
-    async saveEventArt(ev, art, photoBlob) {
+    async saveEventArt(ev, kind, art, photoBlob) {
+      const all = artsOf(ev.art);
       const next = { ...art };
-      const oldPhoto = ev.art && ev.art.photo;
-      if (photoBlob) next.photo = await a.storage.upload(`${ev.ministry_id}/${ev.id}-fundo-${Date.now()}.jpg`, photoBlob);
-      await a.update('events', ev.id, { art: next });
+      const oldPhoto = all[kind] && all[kind].photo;
+      if (photoBlob) next.photo = await a.storage.upload(`${ev.ministry_id}/${ev.id}-${kind}-${Date.now()}.jpg`, photoBlob);
+      await a.update('events', ev.id, { art: { ...all, [kind]: next } });
       if (oldPhoto && oldPhoto !== next.photo) await removeBanners([oldPhoto]);
       return next;
     },
-    async resetEventArt(ev) {
-      await a.update('events', ev.id, { art: null });
-      if (ev.art && ev.art.photo) await removeBanners([ev.art.photo]);
+    async resetEventArt(ev, kind) {
+      const all = artsOf(ev.art);
+      const old = all[kind];
+      delete all[kind];
+      await a.update('events', ev.id, { art: Object.keys(all).length ? all : null });
+      if (old && old.photo) await removeBanners([old.photo]);
     },
     // Faxina: apaga os banners de eventos que já passaram (antes da data informada).
     async cleanupBanners(mid, beforeIso) {
       const old = (await a.list('events', { ministry_id: mid }))
-        .filter((e) => (e.banner || (e.art && e.art.photo)) && e.date < beforeIso);
-      for (const e of old) await a.update('events', e.id, e.art ? { banner: '', art: { ...e.art, photo: '' } } : { banner: '' });
-      await removeBanners(old.flatMap((e) => [e.banner, e.art && e.art.photo]).filter(Boolean));
+        .filter((e) => (e.banner || artPhotos(e.art).length) && e.date < beforeIso);
+      for (const e of old) await a.update('events', e.id, e.art ? { banner: '', art: withoutPhotos(e.art) } : { banner: '' });
+      await removeBanners(old.flatMap((e) => [e.banner, ...artPhotos(e.art)]).filter(Boolean));
       return old.length;
     },
     assign: (row) => a.insert('assignments', { status: 'pending', ...row }),

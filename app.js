@@ -1,10 +1,10 @@
 // Asa — telas e navegação do app.
-import { createApi, demoAdapter, supabaseAdapter, todayISO, addDays } from './data.js?v=12';
+import { createApi, demoAdapter, supabaseAdapter, todayISO, addDays, artsOf } from './data.js?v=13';
 import {
   MAJOR_KEYS, MINOR_KEYS, parseKey, shiftKey, semitonesBetween, transposeText, detectKey,
   renderCifra, songLinks, fmtDuration, searchSongs, cifraClubLinks, findAudio,
-} from './music.js?v=12';
-import { drawArt, defaultArt, THEMES, FORMATS, STYLES, loadImage } from './art.js?v=12';
+} from './music.js?v=13';
+import { drawArt, defaultArt, THEMES, FORMATS, loadImage } from './art.js?v=13';
 
 const LINK_FIELDS = [
   ['cifra', 'Cifra', 'doc'],
@@ -95,6 +95,7 @@ const S = {
   playing: null,
   agenda: null,
   artEdit: null,
+  artKind: 'escala',
   songView: null,
 };
 
@@ -336,31 +337,37 @@ function whatsappText(ev) {
 
 const inviteLink = (code) => `${location.origin}${location.pathname}?convite=${encodeURIComponent(code)}`;
 
-// Banner na página da escala: imagem (toque para abrir em tamanho cheio) e, para admins, trocar/remover.
+// Artes do evento: "Escala da equipe" (lista, para o time) e "Capa do culto" (cinema, para divulgar).
+const ART_KINDS = { escala: 'Escala da equipe', capa: 'Capa do culto' };
+const artSettings = (ev, kind) => ({ ...defaultArt(kind), ...(artsOf(ev.art)[kind] || {}), style: kind === 'escala' ? 'lista' : 'cinema' });
+
 function bannerBlock(ev, admin) {
+  const kind = S.artKind || 'escala';
   const input = `<input type="file" accept="image/*" data-banner="${ev.id}" class="sr-only" id="banner-${ev.id}">`;
-  if (ev.banner) {
-    return `<div class="section">
-      <a href="${esc(ev.banner)}" target="_blank" rel="noopener" class="event-banner-link"><img class="event-banner" src="${esc(ev.banner)}" alt="Banner de ${esc(ev.title)}"></a>
-      ${admin ? `<div style="display:flex;gap:10px">
-        <label class="btn outline small grow" for="banner-${ev.id}">${icon('swap', 18)}Trocar banner</label>${input}
-        <button class="btn danger small" data-act="removeBanner">${icon('trash', 18)}Remover</button></div>`
-        : '<p class="item-sub" style="margin:0;text-align:center">Toque e segure na imagem para salvar.</p>'}</div>`;
-  }
+  const flyer = kind === 'capa' && ev.banner;
+  const frame = flyer
+    ? `<a href="${esc(ev.banner)}" target="_blank" rel="noopener" class="event-banner-link"><img class="event-banner" src="${esc(ev.banner)}" alt="Capa de ${esc(ev.title)}"></a>`
+    : `<div class="art-frame" style="aspect-ratio:${artRatio(artSettings(ev, kind))}"><img class="art-img" data-art-for="${ev.id}" data-kind="${kind}" alt="${ART_KINDS[kind]}: ${esc(ev.title)}"></div>`;
   return `<div class="section">
-    <div class="section-head"><h2 class="h2">Arte da escala</h2>
-      ${admin ? `<button class="btn link small" data-act="open" data-screen="arte" data-id="${ev.id}">${icon('edit', 18)}Editar arte</button>` : ''}</div>
-    <div class="art-frame" style="aspect-ratio:${artRatio({ ...defaultArt(), ...(ev.art || {}) })}"><img class="art-img" data-art-for="${ev.id}" alt="Arte de ${esc(ev.title)}"></div>
+    <div class="section-head"><h2 class="h2">Artes</h2>
+      ${admin && !flyer ? `<button class="btn link small" data-act="open" data-screen="arte" data-id="${ev.id}" data-kind="${kind}">${icon('edit', 18)}Editar</button>` : ''}</div>
+    <div class="seg" role="group" aria-label="Qual arte">${Object.entries(ART_KINDS).map(([k, n]) => `
+      <button data-act="artKind" data-v="${k}" aria-pressed="${kind === k}">${n}</button>`).join('')}</div>
+    <p class="item-sub" style="margin:0">${kind === 'escala' ? 'Com a equipe e as músicas, para mandar no grupo do ministério.' : flyer ? 'Flyer enviado por um administrador.' : 'Para divulgar o culto no status, no Instagram e no grupo da igreja.'}</p>
+    ${frame}
     <div style="display:flex;gap:10px;flex-wrap:wrap">
-      <button class="btn primary small grow" data-act="shareArt">${icon('share', 18)}Compartilhar arte</button>
-      ${admin ? `<label class="btn outline small grow" for="banner-${ev.id}">${icon('image', 18)}Usar flyer pronto</label>${input}` : ''}</div>
+      <button class="btn primary small grow" data-act="shareArt" data-kind="${kind}">${icon('share', 18)}Compartilhar</button>
+      ${admin && kind === 'capa' ? (flyer
+        ? `<label class="btn outline small" for="banner-${ev.id}">${icon('swap', 18)}Trocar</label>${input}
+           <button class="btn danger small" data-act="removeBanner">${icon('trash', 18)}Usar capa automática</button>`
+        : `<label class="btn outline small grow" for="banner-${ev.id}">${icon('image', 18)}Usar flyer pronto</label>${input}`) : ''}</div>
   </div>`;
 }
 
 // ---------- Arte da escala ----------
 
 const artRatio = (a) => { const f = FORMATS[a.format] || FORMATS.story; return `${f.w} / ${f.h}`; };
-const artCache = new Map(); // id do evento -> último arquivo desenhado (para compartilhar)
+const artCache = new Map(); // "evento:tipo" -> último arquivo desenhado (para compartilhar)
 
 function artData(ev) {
   const order = S.md.roles.map((r) => r.name);
@@ -384,13 +391,13 @@ function artData(ev) {
   };
 }
 
-async function renderArt(img, ev, settings, photoImg) {
+async function renderArt(img, ev, kind, settings, photoImg) {
   try {
     let photo = photoImg;
     if (photo === undefined && settings.photo) photo = await loadImage(settings.photo).catch(() => null);
     const canvas = await drawArt(document.createElement('canvas'), artData(ev), settings, photo || null);
     const blob = await new Promise((r) => canvas.toBlob(r, 'image/jpeg', 0.9));
-    artCache.set(ev.id, blob);
+    artCache.set(ev.id + ':' + kind, blob);
     if (img.dataset.url) URL.revokeObjectURL(img.dataset.url);
     img.dataset.url = URL.createObjectURL(blob);
     img.src = img.dataset.url;
@@ -401,10 +408,13 @@ async function renderArt(img, ev, settings, photoImg) {
   }
 }
 
-async function shareArt(ev) {
-  const blob = artCache.get(ev.id);
+async function shareArt(ev, kind) {
+  let blob = artCache.get(ev.id + ':' + kind);
+  if (kind === 'capa' && ev.banner && current().name === 'evento') {
+    try { blob = await (await fetch(ev.banner)).blob(); } catch { blob = null; }
+  }
   if (!blob) return toast('A arte ainda está sendo preparada.');
-  const name = `${ev.title.replace(/[^\p{L}\p{N}]+/gu, '-').toLowerCase()}-${ev.date}.jpg`;
+  const name = `${kind}-${ev.title.replace(/[^\p{L}\p{N}]+/gu, '-').toLowerCase()}-${ev.date}.jpg`;
   const file = new File([blob], name, { type: 'image/jpeg' });
   if (navigator.canShare && navigator.canShare({ files: [file] })) {
     try { await navigator.share({ files: [file], title: ev.title }); return; } catch (e) { if (e.name === 'AbortError') return; }
@@ -616,7 +626,7 @@ const SCREENS = {
     load: async ({ id }) => ({ ev: await S.api.eventDetail(id) }),
     after: ({ ev }) => {
       const img = ev && root().querySelector(`[data-art-for="${ev.id}"]`);
-      if (img) renderArt(img, ev, { ...defaultArt(), ...(ev.art || {}) });
+      if (img) renderArt(img, ev, img.dataset.kind, artSettings(ev, img.dataset.kind));
     },
     view: ({ ev }) => {
       if (!ev) return `<div class="scroll">${backBtn('Escalas')}<div class="empty">Esta escala foi apagada.</div></div>`;
@@ -686,44 +696,43 @@ const SCREENS = {
   },
 
   arte: {
-    load: async ({ id }) => {
+    load: async ({ id, kind = 'escala' }) => {
       const ev = await S.api.eventDetail(id);
-      if (!S.artEdit || S.artEdit.id !== id) {
-        S.artEdit = { id, settings: { ...defaultArt(), ...(ev.art || {}) }, photoBlob: null, photoImg: undefined };
+      if (!S.artEdit || S.artEdit.id !== id || S.artEdit.kind !== kind) {
+        S.artEdit = { id, kind, settings: artSettings(ev, kind), photoBlob: null, photoImg: undefined };
       }
       return { ev };
     },
     after: ({ ev }) => {
       const img = root().querySelector('[data-art-preview]');
-      if (img) renderArt(img, ev, S.artEdit.settings, S.artEdit.photoImg);
+      if (img) renderArt(img, ev, S.artEdit.kind, S.artEdit.settings, S.artEdit.photoImg);
     },
     view: ({ ev }) => {
       const a = S.artEdit.settings;
       const hasPhoto = a.photo || S.artEdit.photoImg;
-      return `<div class="scroll with-bar">${backBtn()}${header('Editar arte', ev.title)}
+      const kind = S.artEdit.kind;
+      return `<div class="scroll with-bar">${backBtn()}${header(kind === 'escala' ? 'Arte da escala' : 'Capa do culto', ev.title)}
         <div class="art-frame" style="aspect-ratio:${artRatio(a)}"><img class="art-img" data-art-preview alt="Prévia da arte"></div>
         <div class="form">
-          <div class="field"><span>Estilo</span><div class="seg" role="group" aria-label="Estilo">${Object.entries(STYLES).map(([k, n]) => `
-            <button type="button" data-act="artSet" data-k="style" data-v="${k}" aria-pressed="${(a.style || 'cinema') === k}">${n}</button>`).join('')}</div></div>
           <div class="field"><span>Cores</span><div class="theme-row">${Object.entries(THEMES).map(([k, t]) => `
             <button type="button" class="theme-chip" data-act="artSet" data-k="theme" data-v="${k}" aria-pressed="${a.theme === k}" aria-label="${t.name}">
               <span style="background:linear-gradient(135deg, ${t.bg[0]}, ${t.bg[1]});border-color:${t.accent}"></span>${t.name}</button>`).join('')}</div></div>
           <div class="field"><span>Formato</span><div class="seg" role="group" aria-label="Formato">${Object.entries(FORMATS).map(([k, f]) => `
             <button type="button" data-act="artSet" data-k="format" data-v="${k}" aria-pressed="${a.format === k}">${f.name}</button>`).join('')}</div></div>
           <label class="field"><span>Título</span><input class="input" data-art-field="title" maxlength="60" value="${esc(a.title)}" placeholder="${esc(ev.title)}"></label>
-          ${a.style === 'lista' ? `<label class="field"><span>Data e horário</span><input class="input" data-art-field="subtitle" maxlength="60" value="${esc(a.subtitle)}" placeholder="${esc(fmtLong(ev.date, ev.time))}"></label>`
+          ${kind === 'escala' ? `<label class="field"><span>Data e horário</span><input class="input" data-art-field="subtitle" maxlength="60" value="${esc(a.subtitle)}" placeholder="${esc(fmtLong(ev.date, ev.time))}"></label>`
             : `<label class="field"><span>Local ou endereço <small>(aparece no rodapé)</small></span><input class="input" data-art-field="place" maxlength="70" value="${esc(a.place || '')}" placeholder="Ex.: Rua das Flores, 120 - Centro"></label>`}
           <label class="field"><span>Frase ou versículo <small>(opcional)</small></span>
             <textarea class="input" data-art-field="phrase" maxlength="140" style="min-height:80px" placeholder="Ex.: Tudo o que tem fôlego louve ao Senhor. Sl 150:6">${esc(a.phrase)}</textarea></label>
-          <div class="list">
+          ${kind === 'escala' ? `<div class="list">
             <label class="item"><input type="checkbox" data-art-check="showTeam" ${a.showTeam ? 'checked' : ''} class="check"><span class="item-main"><span class="item-title" style="font-weight:600">Mostrar a equipe</span></span></label>
-            <label class="item"><input type="checkbox" data-art-check="showSongs" ${a.showSongs ? 'checked' : ''} class="check"><span class="item-main"><span class="item-title" style="font-weight:600">Mostrar as músicas</span></span></label></div>
+            <label class="item"><input type="checkbox" data-art-check="showSongs" ${a.showSongs ? 'checked' : ''} class="check"><span class="item-main"><span class="item-title" style="font-weight:600">Mostrar as músicas</span></span></label></div>` : ''}
           <div class="field"><span>Foto de fundo <small>(opcional)</small></span>
             <div style="display:flex;gap:10px">
               <label class="btn outline small grow" for="art-photo">${icon('image', 18)}${hasPhoto ? 'Trocar foto' : 'Escolher foto'}</label>
               <input type="file" accept="image/*" id="art-photo" data-art-photo class="sr-only">
               ${hasPhoto ? `<button type="button" class="btn danger small" data-act="artNoPhoto">Tirar foto</button>` : ''}</div></div>
-          ${ev.art ? `<button type="button" class="btn link" data-act="artReset">Voltar à arte padrão</button>` : ''}
+          ${artsOf(ev.art)[kind] ? `<button type="button" class="btn link" data-act="artReset">Voltar ao padrão</button>` : ''}
         </div></div>
         <div class="bottom-bar"><button class="btn outline grow" data-act="artShare">${icon('share', 18)}Compartilhar</button>
           <button class="btn primary grow2" data-act="artSave">Salvar arte</button></div>`;
@@ -1003,26 +1012,27 @@ const ACTIONS = {
   tab: (d) => { S.tab = d.tab; S.stack = []; refresh(); },
   back: () => back(),
   reload: () => refresh(),
-  open: (d) => push(d.screen, { id: d.id, key: d.key, es: d.es }),
-  shareArt: () => shareArt(S.view.data.ev),
-  artShare: () => shareArt(S.view.data.ev),
+  open: (d) => push(d.screen, { id: d.id, key: d.key, es: d.es, kind: d.kind }),
+  shareArt: (d) => shareArt(S.view.data.ev, d.kind),
+  artShare: () => shareArt(S.view.data.ev, S.artEdit.kind),
+  artKind: (d) => { S.artKind = d.v; repaint(); },
   artSet: (d) => { S.artEdit.settings[d.k] = d.v; repaint(); },
   artNoPhoto: () => { S.artEdit.settings.photo = ''; S.artEdit.photoBlob = null; S.artEdit.photoImg = null; repaint(); },
   artReset: async () => {
     if (!(await ask('Apagar os ajustes e voltar à arte padrão?'))) return;
     const ev = S.view.data.ev;
-    if (await run(() => S.api.resetEventArt(ev), 'Arte padrão restaurada.')) { S.artEdit = null; back(); }
+    if (await run(() => S.api.resetEventArt(ev, S.artEdit.kind), 'Arte padrão restaurada.')) { S.artEdit = null; back(); }
   },
   artSave: async () => {
     const ev = S.view.data.ev;
     const e = S.artEdit;
     const settings = { ...e.settings };
     if (e.photoImg === null) settings.photo = '';
-    if (await run(() => S.api.saveEventArt(ev, settings, e.photoBlob), 'Arte salva.')) { S.artEdit = null; back(); }
+    if (await run(() => S.api.saveEventArt(ev, e.kind, settings, e.photoBlob), 'Arte salva.')) { S.artEdit = null; back(); }
   },
   removeBanner: async () => {
-    if (!(await ask('Remover o banner deste evento?'))) return;
-    if (await run(() => S.api.removeEventBanner(S.view.data.ev), 'Banner removido.')) refresh({ keepScroll: true });
+    if (!(await ask('Tirar o flyer e voltar à capa automática?'))) return;
+    if (await run(() => S.api.removeEventBanner(S.view.data.ev), 'Voltou à capa automática.')) refresh({ keepScroll: true });
   },
   agenda: (d) => { S.agenda = d.v; repaint(); },
   past: (d) => { S.escalasPast = d.v === '1'; refresh(); },
@@ -1294,7 +1304,7 @@ function wire() {
       run(async () => {
         const blob = await resizeImage(file);
         await S.api.setEventBanner(ev, blob);
-      }, 'Banner salvo.').then((ok) => { if (ok) refresh({ keepScroll: true }); });
+      }, 'Flyer salvo como capa.').then((ok) => { if (ok) { S.artKind = 'capa'; refresh({ keepScroll: true }); } });
     }
     if (el.name === 'key' && el.dataset.auto) el.dataset.auto = el.value ? '0' : '1';
   });
@@ -1306,7 +1316,7 @@ function wire() {
       clearTimeout(artTimer);
       artTimer = setTimeout(() => {
         const img = root().querySelector('[data-art-preview]');
-        if (img && S.view.data.ev) renderArt(img, S.view.data.ev, S.artEdit.settings, S.artEdit.photoImg);
+        if (img && S.view.data.ev) renderArt(img, S.view.data.ev, S.artEdit.kind, S.artEdit.settings, S.artEdit.photoImg);
       }, 250);
       return;
     }
