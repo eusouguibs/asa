@@ -193,3 +193,6 @@ textarea.input.mono { font-family: ui-monospace, 'SF Mono', Menlo, monospace; fo
 .link-field { display: flex; align-items: center; gap: 8px; }
 .link-field .input { flex: 1; min-width: 0; padding: 11px 12px; font-size: 15px; }
 .link-ic { color: var(--blue); display: inline-flex; }
+.seg-sm { padding: 3px; border-radius: 12px; }
+.seg-sm button { padding: 6px 12px; font-size: 13px; border-radius: 9px; }
+.seg-sm button:disabled { opacity: 0.4; cursor: default; }

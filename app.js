@@ -1,9 +1,9 @@
 // Asa — telas e navegação do app.
-import { createApi, demoAdapter, supabaseAdapter, todayISO, addDays } from './data.js?v=8';
+import { createApi, demoAdapter, supabaseAdapter, todayISO, addDays } from './data.js?v=9';
 import {
   MAJOR_KEYS, MINOR_KEYS, parseKey, shiftKey, semitonesBetween, transposeText, detectKey,
   renderCifra, songLinks, fmtDuration, searchSongs, cifraClubLinks, findAudio,
-} from './music.js?v=8';
+} from './music.js?v=9';
 
 const LINK_FIELDS = [
   ['cifra', 'Cifra', 'doc'],
@@ -91,6 +91,7 @@ const S = {
   pendingInvite: null,
   search: { term: '', results: [], loading: false, error: '' },
   playing: null,
+  agenda: null,
   songView: null,
 };
 
@@ -320,6 +321,34 @@ function whatsappText(ev) {
 
 const inviteLink = (code) => `${location.origin}${location.pathname}?convite=${encodeURIComponent(code)}`;
 
+// Agenda da tela inicial: eventos da semana ou do mês. Some quando não há nada marcado no mês.
+function agenda(events, assigns, today) {
+  const weekEnd = addDays(today, 6);
+  const monthEnd = todayISO(new Date(Number(today.slice(0, 4)), Number(today.slice(5, 7)), 0));
+  const month = events.filter((e) => e.date >= today && e.date <= monthEnd).sort(byDate);
+  const week = events.filter((e) => e.date >= today && e.date <= weekEnd).sort(byDate);
+  if (!month.length && !week.length) return '';
+  let mode = S.agenda;
+  if (!mode) mode = week.length ? 'semana' : 'mes';
+  if (mode === 'semana' && !week.length) mode = 'mes';
+  const list = mode === 'semana' ? week : month;
+  return `<div class="section">
+    <div class="section-head"><h2 class="h2">Agenda</h2>
+      <div class="seg seg-sm" role="group" aria-label="Período da agenda">
+        <button data-act="agenda" data-v="semana" aria-pressed="${mode === 'semana'}" ${week.length ? '' : 'disabled'}>Semana</button>
+        <button data-act="agenda" data-v="mes" aria-pressed="${mode === 'mes'}">${MONL[Number(today.slice(5, 7)) - 1][0].toUpperCase() + MONL[Number(today.slice(5, 7)) - 1].slice(1)}</button></div></div>
+    <div class="list">${list.map((e) => {
+      const d = parseISO(e.date);
+      const mine = assigns.find((a) => a.event_id === e.id && a.user_id === S.user.id);
+      const n = assigns.filter((a) => a.event_id === e.id).length;
+      return `<button class="item" data-act="open" data-screen="evento" data-id="${e.id}">
+        <span class="date-block ${mine ? 'mine' : ''}" style="width:46px;padding:6px 0"><span>${WD[d.getDay()]}</span><span style="font-size:19px">${d.getDate()}</span></span>
+        <span class="item-main"><span class="item-title">${esc(e.title)}</span>
+          <span class="item-sub">${e.date === today ? 'Hoje' : e.date === addDays(today, 1) ? 'Amanhã' : MON[d.getMonth()]}${e.time ? ' · ' + fmtTime(e.time) : ''} · ${n ? `${n} ${n === 1 ? 'pessoa' : 'pessoas'}` : 'equipe a definir'}</span></span>
+        ${mine ? `<span class="tag pending">${esc(mine.role_name)}</span>` : ''}</button>`;
+    }).join('')}</div></div>`;
+}
+
 // ---------- Telas ----------
 
 const SCREENS = {
@@ -400,6 +429,7 @@ const SCREENS = {
       const month = today.slice(5, 7);
       const bdays = S.md.members.filter((m) => m.profile.birthday && m.profile.birthday.slice(5, 7) === month)
         .sort((a, b) => a.profile.birthday.slice(8).localeCompare(b.profile.birthday.slice(8)));
+      const agendaHtml = agenda(events, assigns, today);
       const lastNotices = notices.slice().sort((a, b) => b.created_at.localeCompare(a.created_at)).slice(0, 3);
       const multi = S.ministries.length > 1;
       return `<div class="scroll">
@@ -421,6 +451,7 @@ const SCREENS = {
               <button class="btn outline-light grow" data-act="status" data-id="${next.a.id}" data-status="declined">Não posso</button></div>`
               : `<button class="btn outline-light" data-act="open" data-screen="evento" data-id="${next.e.id}">Ver escala completa</button>`}
           </div>` : `<div class="empty">Quando o líder escalar você, a escala aparece aqui.</div>`}
+        ${agendaHtml}
         <div class="section"><div class="section-head"><h2 class="h2">Avisos</h2>
           ${isAdmin() ? `<button class="btn link small" data-act="open" data-screen="aviso">${icon('plus', 18)}Novo aviso</button>` : ''}</div>
           ${lastNotices.length ? `<div class="list">${lastNotices.map((n) => `<div class="item static">
@@ -800,6 +831,7 @@ const ACTIONS = {
   back: () => back(),
   reload: () => refresh(),
   open: (d) => push(d.screen, { id: d.id, key: d.key, es: d.es }),
+  agenda: (d) => { S.agenda = d.v; repaint(); },
   past: (d) => { S.escalasPast = d.v === '1'; refresh(); },
   newEvent: () => push('eventoForm', {}),
   newSong: () => { S.search = { term: '', results: [], loading: false, error: '' }; push('buscarMusica', {}); },
