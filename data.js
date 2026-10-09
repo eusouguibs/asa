@@ -219,7 +219,7 @@ export async function supabaseAdapter(cfg) {
         ok(await sb.auth.verifyOtp({ email, token: token.replace(/\D/g, ''), type: 'email' }));
       },
       async signOut() { await sb.auth.signOut(); },
-      onChange(cb) { sb.auth.onAuthStateChange(() => cb()); },
+      onChange(cb) { sb.auth.onAuthStateChange((event) => cb(event)); },
     },
     reset: null,
     storage: {
@@ -281,10 +281,11 @@ export function createApi(a) {
     joinMinistry: (code) => a.rpc('join_ministry', { p_code: code.trim().toUpperCase() }),
 
     async ministryData(mid) {
-      const [ministry] = await a.list('ministries', { id: mid });
-      const members = await a.list('members', { ministry_id: mid });
+      // 2 idas ao servidor em vez de 4: ministério, membros e funções juntos; depois os perfis.
+      const [[ministry], members, roles] = await Promise.all([
+        a.list('ministries', { id: mid }), a.list('members', { ministry_id: mid }), a.list('roles', { ministry_id: mid }),
+      ]);
       const profiles = await a.listIn('profiles', 'id', members.map((m) => m.user_id));
-      const roles = await a.list('roles', { ministry_id: mid });
       return {
         ministry,
         members: members
@@ -306,10 +307,11 @@ export function createApi(a) {
     events: (mid) => a.list('events', { ministry_id: mid }),
     allAssignments: (mid) => a.list('assignments', { ministry_id: mid }),
     async eventDetail(id) {
-      const [ev] = await a.list('events', { id });
+      // 2 idas ao servidor em vez de 4.
+      const [[ev], assignments, es] = await Promise.all([
+        a.list('events', { id }), a.list('assignments', { event_id: id }), a.list('event_songs', { event_id: id }),
+      ]);
       if (!ev) return null;
-      const assignments = await a.list('assignments', { event_id: id });
-      const es = await a.list('event_songs', { event_id: id });
       const songs = await a.listIn('songs', 'id', es.map((x) => x.song_id));
       return {
         ...ev,

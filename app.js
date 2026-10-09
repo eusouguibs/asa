@@ -1,10 +1,10 @@
 // Asa — telas e navegação do app.
-import { createApi, demoAdapter, supabaseAdapter, todayISO, addDays, artsOf } from './data.js?v=13';
+import { createApi, demoAdapter, supabaseAdapter, todayISO, addDays, artsOf } from './data.js?v=14';
 import {
   MAJOR_KEYS, MINOR_KEYS, parseKey, shiftKey, semitonesBetween, transposeText, detectKey,
   renderCifra, songLinks, fmtDuration, searchSongs, cifraClubLinks, findAudio,
-} from './music.js?v=13';
-import { drawArt, defaultArt, THEMES, FORMATS, loadImage } from './art.js?v=13';
+} from './music.js?v=14';
+import { drawArt, defaultArt, THEMES, FORMATS, loadImage } from './art.js?v=14';
 
 const LINK_FIELDS = [
   ['cifra', 'Cifra', 'doc'],
@@ -205,34 +205,110 @@ function showText(title, text) {
 
 // ---------- Fluxo principal ----------
 
+// O que muda pouco (perfil, ministérios, membros, funções) é carregado uma vez e guardado.
+// Cada tela também fica guardada: ao voltar a ela, aparece na hora e se atualiza em seguida.
+let ctxReady = false;
+const invalidate = () => { ctxReady = false; };
+const screenCache = new Map();
+const CACHEABLE = new Set(['inicio', 'escalas', 'repertorio', 'ministerio', 'evento', 'musica', 'membros', 'funcoes', 'ministerios']);
+let refreshSeq = 0;
+
+async function loadContext() {
+  S.user = await S.api.auth.user();
+  if (!S.user) return 'login';
+  let [profile, ministries] = await Promise.all([S.api.profile(S.user.id), S.api.myMinistries(S.user.id)]);
+  S.profile = profile;
+  if (!profile || !profile.name) return 'nome';
+  if (S.pendingInvite) {
+    const code = S.pendingInvite;
+    S.pendingInvite = null;
+    store.set('asa-convite', null);
+    try { S.mid = await S.api.joinMinistry(code); store.set('asa-mid', S.mid); toast('Você entrou no ministério!'); }
+    catch (e) { toast(e.message); }
+    ministries = await S.api.myMinistries(S.user.id);
+  }
+  S.ministries = ministries;
+  if (!S.ministries.length) return 'semMinisterio';
+  if (!S.ministries.some((m) => m.id === S.mid)) { S.mid = S.ministries[0].id; store.set('asa-mid', S.mid); }
+  S.md = await S.api.ministryData(S.mid);
+  cleanupOnceADay();
+  ctxReady = true;
+  return null;
+}
+
+const busy = (on) => document.body.classList.toggle('busy', on);
+
+// Foto da última abertura: o app abre mostrando o Início na hora e atualiza por trás.
+function saveSnap(home) {
+  if (!S.user || !S.md) return;
+  try {
+    const prev = JSON.parse(localStorage.getItem('asa-snap') || 'null');
+    const snap = { uid: S.user.id, profile: S.profile, ministries: S.ministries, md: S.md, mid: S.mid, home: home || (prev && prev.mid === S.mid ? prev.home : null) };
+    localStorage.setItem('asa-snap', JSON.stringify(snap));
+  } catch { /* sem espaço: segue sem foto */ }
+}
+const clearSnap = () => { try { localStorage.removeItem('asa-snap'); } catch { /* ignore */ } };
+
+let snapTried = false;
+async function trySnap() {
+  if (snapTried) return false;
+  snapTried = true;
+  let snap;
+  try { snap = JSON.parse(localStorage.getItem('asa-snap') || 'null'); } catch { snap = null; }
+  if (!snap || !snap.md || !snap.home) return false;
+  S.user = await S.api.auth.user();
+  if (!S.user || S.user.id !== snap.uid) return false;
+  Object.assign(S, { profile: snap.profile, ministries: snap.ministries, md: snap.md, mid: snap.mid });
+  screenCache.set(`${S.mid}|inicio|{}`, snap.home);
+  ctxReady = true;
+  // Atualiza tudo por trás e redesenha quando chegar.
+  loadContext().then((gate) => { if (gate) { ctxReady = false; } refresh({ keepScroll: true }); }).catch(() => {});
+  return true;
+}
+
 async function refresh({ keepScroll = false } = {}) {
   stopAudio();
+  const seq = ++refreshSeq;
   const scroller = root().querySelector('.scroll');
   const top = keepScroll && scroller ? scroller.scrollTop : 0;
+  busy(true);
   try {
-    S.user = await S.api.auth.user();
-    if (!S.user) { S.view = { screen: 'login' }; return paint(top); }
-    S.profile = await S.api.profile(S.user.id);
-    if (!S.profile || !S.profile.name) { S.view = { screen: 'nome' }; return paint(top); }
-    if (S.pendingInvite) {
-      const code = S.pendingInvite;
-      S.pendingInvite = null;
-      store.set('asa-convite', null);
-      try { S.mid = await S.api.joinMinistry(code); store.set('asa-mid', S.mid); toast('Você entrou no ministério!'); }
-      catch (e) { toast(e.message); }
+    if (!ctxReady && !S.stack.length && S.tab === 'inicio') await trySnap();
+    if (!ctxReady) {
+      const gate = await loadContext();
+      if (seq !== refreshSeq) return;
+      if (gate) { S.view = { screen: gate }; return paint(top); }
     }
-    S.ministries = await S.api.myMinistries(S.user.id);
-    if (!S.ministries.length) { S.view = { screen: 'semMinisterio' }; return paint(top); }
-    if (!S.ministries.some((m) => m.id === S.mid)) { S.mid = S.ministries[0].id; store.set('asa-mid', S.mid); }
-    S.md = await S.api.ministryData(S.mid);
-    cleanupOnceADay();
     const cur = current();
+    const params = cur.params || {};
     const screen = SCREENS[cur.name];
-    const data = screen.load ? await screen.load(cur.params || {}) : {};
-    S.view = { screen: cur.name, params: cur.params || {}, data };
+    const key = `${S.mid}|${cur.name}|${JSON.stringify(params)}`;
+    const cached = CACHEABLE.has(cur.name) && screenCache.get(key);
+    let shown = false;
+    if (cached && !keepScroll) {
+      S.view = { screen: cur.name, params, data: cached };
+      paint(top);
+      shown = true;
+    }
+    const data = screen.load ? await screen.load(params) : {};
+    if (seq !== refreshSeq) return; // a pessoa já foi para outra tela
+    if (CACHEABLE.has(cur.name)) screenCache.set(key, data);
+    if (cur.name === 'inicio') saveSnap(data); else if (ctxReady) saveSnap();
+    if (shown) {
+      // Só redesenha se algo mudou, e sem atrapalhar quem está digitando.
+      const typing = root().contains(document.activeElement) && /INPUT|TEXTAREA|SELECT/.test(document.activeElement.tagName);
+      if (typing || JSON.stringify(data) === JSON.stringify(cached)) { S.view.data = data; return; }
+      const sc = root().querySelector('.scroll');
+      S.view = { screen: cur.name, params, data };
+      return paint(sc ? sc.scrollTop : 0);
+    }
+    S.view = { screen: cur.name, params, data };
   } catch (e) {
     console.error(e);
-    S.view = { screen: 'erro', data: { message: e.message } };
+    if (seq !== refreshSeq) return;
+    S.view = { screen: 'erro', data: { message: friendly(e.message) } };
+  } finally {
+    if (seq === refreshSeq) busy(false);
   }
   paint(top);
 }
@@ -278,6 +354,7 @@ function friendly(msg = '') {
 async function run(fn, okMsg) {
   try {
     await fn();
+    screenCache.clear();
     if (okMsg) toast(okMsg);
     return true;
   } catch (e) {
@@ -1132,23 +1209,38 @@ const ACTIONS = {
   },
   fillTitle: (d, el) => { const input = el.form.elements.title; input.value = d.v; input.focus(); },
 
-  demoLogin: async () => { await S.api.auth.signIn(); refresh(); },
+  demoLogin: async () => { await S.api.auth.signIn(); invalidate(); refresh(); },
   loginAgain: () => { setLoginSent(null); refresh(); },
   signOut: async () => {
     if (!(await ask('Sair da sua conta neste aparelho?'))) return;
     await S.api.auth.signOut();
     S.stack = []; S.tab = 'inicio'; S.md = null;
+    invalidate(); screenCache.clear(); clearSnap();
     refresh();
   },
   resetDemo: async () => {
     if (!(await ask('Apagar as mudanças e voltar aos dados de exemplo?'))) return;
-    S.api.reset(); S.stack = []; S.tab = 'inicio'; S.mid = null; refresh();
+    S.api.reset(); S.stack = []; S.tab = 'inicio'; S.mid = null; invalidate(); screenCache.clear(); clearSnap(); refresh();
   },
-  switchMin: (d) => { S.mid = d.id; store.set('asa-mid', d.id); S.stack = []; S.tab = 'inicio'; refresh(); },
+  switchMin: (d) => { S.mid = d.id; store.set('asa-mid', d.id); S.stack = []; S.tab = 'inicio'; invalidate(); refresh(); },
 
   status: async (d) => {
     const msg = { confirmed: 'Presença confirmada!', declined: 'O líder vai ver que você não pode.', pending: 'Resposta desfeita.' }[d.status];
-    if (await run(() => S.api.setMyStatus(d.id, d.status), msg)) refresh({ keepScroll: true });
+    // Mostra a resposta na hora; o servidor confirma em seguida (se falhar, a tela volta ao que era).
+    const data = S.view.data || {};
+    const list = (data.ev && data.ev.assignments) || data.assigns || [];
+    const a = list.find((x) => x.id === d.id);
+    const before = a && a.status;
+    if (a) { a.status = d.status; repaint(); }
+    toast(msg);
+    try {
+      await S.api.setMyStatus(d.id, d.status);
+      screenCache.clear();
+      refresh({ keepScroll: true });
+    } catch (e) {
+      if (a) { a.status = before; repaint(); }
+      toast(friendly(e.message));
+    }
   },
   unassign: async (d) => { if (await run(() => S.api.unassign(d.id), 'Pessoa tirada da escala.')) refresh({ keepScroll: true }); },
   delEvent: async (d) => {
@@ -1169,14 +1261,14 @@ const ACTIONS = {
     if (!(await ask('Apagar este aviso?'))) return;
     if (await run(() => S.api.removeNotice(d.id), 'Aviso apagado.')) refresh({ keepScroll: true });
   },
-  delRole: async (d) => { if (await run(() => S.api.removeRole(d.id), 'Função apagada.')) refresh({ keepScroll: true }); },
+  delRole: async (d) => { if (await run(() => S.api.removeRole(d.id), 'Função apagada.')) { invalidate(); refresh({ keepScroll: true }); } },
   toggleAdmin: async (d) => {
     const role = d.role === 'admin' ? 'member' : 'admin';
-    if (await run(() => S.api.setMemberRole(d.id, role), role === 'admin' ? 'Agora é administrador.' : 'Deixou de ser administrador.')) refresh({ keepScroll: true });
+    if (await run(() => S.api.setMemberRole(d.id, role), role === 'admin' ? 'Agora é administrador.' : 'Deixou de ser administrador.')) { invalidate(); refresh({ keepScroll: true }); }
   },
   removeMember: async (d) => {
     if (!(await ask(`Remover ${d.name} do ministério?`))) return;
-    if (await run(() => S.api.removeMember(d.id), 'Membro removido.')) refresh({ keepScroll: true });
+    if (await run(() => S.api.removeMember(d.id), 'Membro removido.')) { invalidate(); refresh({ keepScroll: true }); }
   },
   invite: async () => {
     const m = S.md.ministry;
@@ -1197,25 +1289,26 @@ const FORMS = {
     if (await run(() => S.api.auth.signIn(email))) { setLoginSent(email); refresh(); }
   },
   codigo: async (f) => {
-    if (await run(() => S.api.auth.verifyCode(S.loginSent, f.get('code')))) { setLoginSent(null); refresh(); }
+    if (await run(() => S.api.auth.verifyCode(S.loginSent, f.get('code')))) { setLoginSent(null); invalidate(); refresh(); }
   },
   perfil: async (f, el) => {
     const patch = { name: f.get('name').trim(), birthday: f.get('birthday') || null };
     if (!patch.name) return toast('Escreva seu nome.');
     if (await run(() => S.api.saveProfile(S.user.id, patch), el.dataset.stay ? 'Perfil salvo.' : null)) {
+      invalidate();
       if (el.dataset.stay) back(); else refresh();
     }
   },
   entrar: async (f) => {
     let id;
     if (await run(async () => { id = await S.api.joinMinistry(f.get('code')); }, 'Você entrou no ministério!')) {
-      S.mid = id; store.set('asa-mid', id); S.stack = []; S.tab = 'inicio'; refresh();
+      S.mid = id; store.set('asa-mid', id); S.stack = []; S.tab = 'inicio'; invalidate(); refresh();
     }
   },
   criarMinisterio: async (f) => {
     let id;
     if (await run(async () => { id = await S.api.createMinistry(f.get('name')); }, 'Ministério criado! Agora convide a equipe.')) {
-      S.mid = id; store.set('asa-mid', id); S.stack = []; S.tab = 'ministerio'; refresh();
+      S.mid = id; store.set('asa-mid', id); S.stack = []; S.tab = 'ministerio'; invalidate(); refresh();
     }
   },
   evento: async (f, el) => {
@@ -1259,7 +1352,7 @@ const FORMS = {
     S.search.loading = false;
     if (current().name === 'buscarMusica') repaint();
   },
-  funcao: async (f) => { if (await run(() => S.api.addRole(S.mid, f.get('name')), 'Função adicionada.')) refresh({ keepScroll: true }); },
+  funcao: async (f) => { if (await run(() => S.api.addRole(S.mid, f.get('name')), 'Função adicionada.')) { invalidate(); refresh({ keepScroll: true }); } },
   aviso: async (f) => {
     if (await run(() => S.api.addNotice({ ministry_id: S.mid, author_id: S.user.id, text: f.get('text').trim() }), 'Aviso publicado.')) back();
   },
@@ -1351,7 +1444,12 @@ async function boot() {
     history.replaceState(null, '', location.pathname);
   }
   S.pendingInvite = store.get('asa-convite');
-  S.api.auth.onChange(() => refresh());
+  S.api.auth.onChange((event) => {
+    // Renovação automática do login não precisa recarregar nada; entrar ou sair, sim.
+    if (event && !['SIGNED_IN', 'SIGNED_OUT', 'USER_UPDATED'].includes(event)) return;
+    if (event === 'SIGNED_IN' && ctxReady && S.user) return;
+    invalidate(); screenCache.clear(); refresh();
+  });
   wire();
   await refresh();
 }
