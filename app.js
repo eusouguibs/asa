@@ -110,6 +110,22 @@ const store = {
 };
 
 const root = () => document.getElementById('app');
+
+// Aberto pelo atalho da tela de início (app instalado)?
+const installed = () => window.matchMedia?.('(display-mode: standalone)').matches || navigator.standalone === true;
+
+// Lembra que um código foi pedido, para o app continuar esperando o código mesmo se o celular
+// fechar o app enquanto a pessoa abre o e-mail (o código vale por 1 hora).
+function setLoginSent(email) {
+  S.loginSent = email;
+  store.set('asa-login-sent', email ? JSON.stringify({ email, at: Date.now() }) : null);
+}
+function restoreLoginSent() {
+  try {
+    const v = JSON.parse(store.get('asa-login-sent') || 'null');
+    if (v && Date.now() - v.at < 60 * 60 * 1000) S.loginSent = v.email;
+  } catch { /* ignore */ }
+}
 const me = () => S.md && S.md.members.find((m) => m.user_id === S.user.id);
 const isAdmin = () => me()?.role === 'admin';
 const nameOf = (userId) => S.md?.members.find((m) => m.user_id === userId)?.profile.name || 'Ex-membro';
@@ -307,7 +323,8 @@ const SCREENS = {
       }
       if (S.loginSent) {
         return `<div class="center-screen"><div class="brand">${logo(84)}<h1 class="h1">Confira seu e-mail</h1>
-          <p class="sub">Enviamos um código para <strong>${esc(S.loginSent)}</strong>. Digite-o aqui. Pode demorar um minuto e às vezes cai no spam.</p></div>
+          <p class="sub">Enviamos um código para <strong>${esc(S.loginSent)}</strong>. Pode demorar um minuto e às vezes cai no spam.</p></div>
+          <div class="banner"><strong>Digite o código de 6 números.</strong> Não toque no link do e-mail: ele abre o navegador, e você continuaria sem entrar ${installed() ? 'neste app' : 'aqui'}.</div>
           <form class="form" data-form="codigo">
             <label class="field"><span>Código de acesso</span>
               <input class="input" name="code" required inputmode="numeric" autocomplete="one-time-code" maxlength="10"
@@ -319,9 +336,9 @@ const SCREENS = {
         <p class="sub">Escalas, repertório e avisos do seu ministério, num lugar só.</p></div>
         <form class="form" data-form="login">
           <label class="field"><span>Seu e-mail</span>
-            <input class="input" name="email" type="email" required autocomplete="email" inputmode="email" placeholder="voce@exemplo.com"></label>
+            <input class="input" name="email" type="email" required autocomplete="email" inputmode="email" placeholder="voce@exemplo.com" value="${esc(store.get('asa-email') || '')}"></label>
           <button class="btn primary block">Receber código de acesso</button>
-          <small class="sub" style="text-align:center">Sem senha: você recebe um código no e-mail para entrar.</small>
+          <small class="sub" style="text-align:center">Sem senha: você recebe um código no e-mail. Depois de entrar uma vez, o Asa abre direto${installed() ? ' por este atalho' : ''}.</small>
         </form></div>`;
     },
   },
@@ -819,7 +836,7 @@ const ACTIONS = {
   fillTitle: (d, el) => { const input = el.form.elements.title; input.value = d.v; input.focus(); },
 
   demoLogin: async () => { await S.api.auth.signIn(); refresh(); },
-  loginAgain: () => { S.loginSent = null; refresh(); },
+  loginAgain: () => { setLoginSent(null); refresh(); },
   signOut: async () => {
     if (!(await ask('Sair da sua conta neste aparelho?'))) return;
     await S.api.auth.signOut();
@@ -879,10 +896,11 @@ const ACTIONS = {
 const FORMS = {
   login: async (f) => {
     const email = f.get('email').trim();
-    if (await run(() => S.api.auth.signIn(email))) { S.loginSent = email; refresh(); }
+    store.set('asa-email', email);
+    if (await run(() => S.api.auth.signIn(email))) { setLoginSent(email); refresh(); }
   },
   codigo: async (f) => {
-    if (await run(() => S.api.auth.verifyCode(S.loginSent, f.get('code')))) { S.loginSent = null; refresh(); }
+    if (await run(() => S.api.auth.verifyCode(S.loginSent, f.get('code')))) { setLoginSent(null); refresh(); }
   },
   perfil: async (f, el) => {
     const patch = { name: f.get('name').trim(), birthday: f.get('birthday') || null };
@@ -998,6 +1016,7 @@ async function boot() {
   const adapter = cfg.supabaseUrl && cfg.supabaseAnonKey ? await supabaseAdapter(cfg) : demoAdapter();
   S.api = createApi(adapter);
   S.mid = store.get('asa-mid');
+  restoreLoginSent();
   const params = new URLSearchParams(location.search);
   const code = params.get('convite');
   if (code) {

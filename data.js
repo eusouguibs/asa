@@ -173,7 +173,10 @@ export function demoAdapter(storage = globalThis.localStorage) {
 
 export async function supabaseAdapter(cfg) {
   const { createClient } = await import('https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/+esm');
-  const sb = createClient(cfg.supabaseUrl, cfg.supabaseAnonKey);
+  // O login fica guardado no aparelho e é renovado sozinho: a pessoa entra uma vez e pronto.
+  const sb = createClient(cfg.supabaseUrl, cfg.supabaseAnonKey, {
+    auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: true },
+  });
   const ok = ({ data, error }) => {
     if (error) throw new Error(error.message);
     return data;
