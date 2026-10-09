@@ -1,10 +1,10 @@
 // Asa — telas e navegação do app.
-import { createApi, demoAdapter, supabaseAdapter, todayISO, addDays, artsOf } from './data.js?v=15';
+import { createApi, demoAdapter, supabaseAdapter, todayISO, addDays, artsOf } from './data.js?v=16';
 import {
   MAJOR_KEYS, MINOR_KEYS, parseKey, shiftKey, semitonesBetween, transposeText, detectKey,
   renderCifra, songLinks, fmtDuration, searchSongs, cifraClubLinks, findAudio,
-} from './music.js?v=15';
-import { drawArt, defaultArt, THEMES, FORMATS, loadImage } from './art.js?v=15';
+} from './music.js?v=16';
+import { drawArt, defaultArt, THEMES, FORMATS, loadImage } from './art.js?v=16';
 
 const LINK_FIELDS = [
   ['cifra', 'Cifra', 'doc'],
@@ -579,11 +579,11 @@ const SCREENS = {
       if (S.loginSent) {
         return `<div class="center-screen"><div class="brand">${logo(84)}<h1 class="h1">Confira seu e-mail</h1>
           <p class="sub">Enviamos um código para <strong>${esc(S.loginSent)}</strong>. Pode demorar um minuto e às vezes cai no spam.</p></div>
-          <div class="banner"><strong>Digite o código de 6 números.</strong> Não toque no link do e-mail: ele abre o navegador, e você continuaria sem entrar ${installed() ? 'neste app' : 'aqui'}.</div>
+          <div class="banner"><strong>Digite o código que chegou no e-mail.</strong> Não toque no link do e-mail: ele abre o navegador, e você continuaria sem entrar ${installed() ? 'neste app' : 'aqui'}.</div>
           <form class="form" data-form="codigo">
             <label class="field"><span>Código de acesso</span>
               <input class="input" name="code" required inputmode="numeric" autocomplete="one-time-code" maxlength="10"
-                placeholder="000000" style="font-size:24px;letter-spacing:0.3em;text-align:center" autofocus></label>
+                placeholder="código" style="font-size:24px;letter-spacing:0.3em;text-align:center" autofocus></label>
             <button class="btn primary block">Entrar</button></form>
           <button class="btn link" data-act="loginAgain">Usar outro e-mail ou reenviar</button></div>`;
       }
@@ -1454,6 +1454,8 @@ function wire() {
 }
 
 async function boot() {
+  // Pede ao aparelho para não apagar os dados do app (e o login) quando faltar espaço.
+  try { navigator.storage?.persist?.(); } catch { /* opcional */ }
   const cfg = window.ASA_CONFIG || {};
   const adapter = cfg.supabaseUrl && cfg.supabaseAnonKey ? await supabaseAdapter(cfg) : demoAdapter();
   S.api = createApi(adapter);

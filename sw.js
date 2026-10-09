@@ -1,5 +1,5 @@
 // Permite instalar o Asa na tela inicial e abrir rápido mesmo com internet fraca.
-const CACHE = 'asa-v15';
+const CACHE = 'asa-v16';
 const FILES = ['./', './index.html', './styles.css', './app.js', './data.js', './music.js', './art.js', './config.js', './icon.svg', './manifest.webmanifest'];
 
 self.addEventListener('install', (e) => {
