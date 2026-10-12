@@ -161,6 +161,13 @@ export function demoAdapter(storage = globalThis.localStorage) {
       Object.assign(r, patch); save(); return clone(r);
     },
     async remove(t, id) { removeDeep(t, id); save(); },
+    async upsert(t, row, key) {
+      const r = table(t).find((x) => x[key] === row[key]);
+      if (r) Object.assign(r, row); else table(t).push({ ...row });
+      save(); return clone(row);
+    },
+    async removeWhere(t, m) { db[t] = table(t).filter((r) => !match(r, m)); save(); },
+    async fn() { throw new Error('Na demonstração não dá para conectar ao Holyrics. Entre com sua conta para usar.'); },
     async rpc(name, args) {
       const user = me();
       if (name === 'create_ministry') {
@@ -252,7 +259,20 @@ export async function supabaseAdapter(cfg) {
     async insert(t, row) { return ok(await sb.from(t).insert(row).select().single()); },
     async update(t, id, patch) { return ok(await sb.from(t).update(patch).eq('id', id).select().single()); },
     async remove(t, id) { ok(await sb.from(t).delete().eq('id', id)); },
+    async upsert(t, row, key) { return ok(await sb.from(t).upsert(row, { onConflict: key }).select().single()); },
+    async removeWhere(t, m) { ok(await sb.from(t).delete().match(m)); },
     async rpc(name, args) { return ok(await sb.rpc(name, args)); },
+    // Funções do servidor (Edge Functions), como a ponte com o Holyrics.
+    async fn(name, body) {
+      const { data, error } = await sb.functions.invoke(name, { body });
+      if (error) {
+        let detail = null;
+        try { detail = await error.context.json(); } catch { /* sem corpo */ }
+        if (detail) return detail;
+        throw new Error(/failed to send|fetch/i.test(error.message) ? 'Sem conexão com o servidor do Asa.' : error.message);
+      }
+      return data;
+    },
     auth: {
       async user() {
         const { data } = await sb.auth.getSession();
@@ -340,9 +360,10 @@ export function createApi(a) {
     async ministryData(mid) {
       // 2 idas ao servidor: ministério, membros, funções, equipes e classificações juntos; depois os perfis.
       const optional = (p) => p.catch(() => []); // banco ainda sem as tabelas novas
-      const [[ministry], members, roles, teams, categories] = await Promise.all([
+      const [[ministry], members, roles, teams, categories, holyrics] = await Promise.all([
         a.list('ministries', { id: mid }), a.list('members', { ministry_id: mid }), a.list('roles', { ministry_id: mid }),
         optional(a.list('teams', { ministry_id: mid })), optional(a.list('categories', { ministry_id: mid })),
+        optional(a.list('holyrics', { ministry_id: mid })),
       ]);
       const profiles = await a.listIn('profiles', 'id', members.map((m) => m.user_id));
       return {
@@ -359,6 +380,7 @@ export function createApi(a) {
         }),
         teams: teams.map((t) => ({ ...t, member_ids: t.member_ids || [] })).sort(byName),
         categories: categories.sort(byName),
+        hasHolyrics: holyrics.length > 0, // as chaves não ficam guardadas aqui
       };
     },
     updateMinistry: (id, patch) => a.update('ministries', id, patch),
@@ -399,6 +421,12 @@ export function createApi(a) {
       : a.insert('categories', { ministry_id: c.ministry_id, name: c.name.trim(), description: (c.description || '').trim() })),
     removeCategory: (id) => a.remove('categories', id),
     seedCategories: (mid) => a.rpc('seed_categories', { p_ministry: mid }),
+
+    // Holyrics: chaves do ministério e chamadas pela ponte do servidor.
+    saveHolyrics: (mid, apiKey, token) => a.upsert('holyrics', { ministry_id: mid, api_key: apiKey.trim(), token: token.trim(), updated_at: new Date().toISOString() }, 'ministry_id'),
+    removeHolyrics: (mid) => a.removeWhere('holyrics', { ministry_id: mid }),
+    holyrics: (mid, action, data, creds) => a.fn('holyrics', { ministry_id: mid, action, data, ...(creds || {}) }),
+    setHolyricsId: (table, id, holyricsId, extra) => a.update(table, id, { holyrics_id: String(holyricsId || ''), ...(extra || {}) }),
     // Foto de perfil: banners/avatars/<pessoa>/<arquivo>.
     async setAvatar(profile, blob) {
       const url = await a.storage.upload(`avatars/${profile.id}/${Date.now()}.jpg`, blob);

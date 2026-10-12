@@ -279,3 +279,10 @@ div.min-cover.empty { cursor: default; }
 .cat-row { display: flex; gap: 8px; overflow-x: auto; padding-bottom: 2px; margin: 0 -20px; padding-left: 20px; padding-right: 20px; scrollbar-width: none; }
 .cat-row .chip { flex-shrink: 0; }
 @media (prefers-reduced-motion: reduce) { .chev-down, .switch, .switch::after { transition: none; } }
+
+/* ---------- Holyrics ---------- */
+.steps { margin: 0; padding: 16px 16px 16px 36px; background: var(--card); border-radius: var(--radius); display: flex; flex-direction: column; gap: 10px; font-size: 15px; line-height: 1.45; }
+.progress-row { display: flex; align-items: center; gap: 14px; }
+.spinner { width: 26px; height: 26px; border-radius: 50%; border: 3px solid var(--blue-soft); border-top-color: var(--blue); animation: asa-spin .8s linear infinite; flex-shrink: 0; }
+@keyframes asa-spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .spinner { animation-duration: 2.4s; } }

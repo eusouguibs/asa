@@ -108,6 +108,30 @@ export function detectKey(text) {
 const escHtml = (v) => String(v ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const isTabLine = (l) => /[|].*-{2,}|-{2,}.*[|]/.test(l);
 
+// Letra limpa para telão (Holyrics): sem acordes nem tablaturas, um slide por estrofe (até 4 linhas).
+export function lyricsSlides(text) {
+  const lines = String(text || '').replace(/\r/g, '').split('\n');
+  const slides = [];
+  let cur = [];
+  let label = '';
+  const flush = () => {
+    for (let i = 0; i < cur.length; i += 4) {
+      slides.push({ text: cur.slice(i, i + 4).join('\n'), slide_description: i === 0 ? label : '' });
+    }
+    cur = []; label = '';
+  };
+  for (const raw of lines) {
+    const l = raw.trim();
+    const part = l.match(/^\[([^\]]+)\]/);
+    if (part) { flush(); label = part[1].trim(); if (isChordLine(l) || l === part[0]) continue; }
+    if (!l) { flush(); continue; }
+    if (isChordLine(l) || isTabLine(l)) continue;
+    cur.push(l.replace(/\[[^\]]*\]/g, '').replace(/\s{2,}/g, ' ').trim());
+  }
+  flush();
+  return slides.filter((x) => x.text);
+}
+
 // HTML da cifra: acordes destacados; no modo "só letra" some com acordes e tablaturas.
 export function renderCifra(text, { lyricsOnly = false } = {}) {
   const lines = String(text || '').replace(/\r/g, '').split('\n');

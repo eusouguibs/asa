@@ -1,10 +1,11 @@
 // Asa — telas e navegação do app.
-import { createApi, demoAdapter, supabaseAdapter, todayISO, addDays, artsOf, ROLE_ICONS, guessIcon } from './data.js?v=18';
+import { createApi, demoAdapter, supabaseAdapter, todayISO, addDays, artsOf, ROLE_ICONS, guessIcon } from './data.js?v=19';
 import {
   MAJOR_KEYS, MINOR_KEYS, parseKey, shiftKey, semitonesBetween, transposeText, detectKey,
   renderCifra, songLinks, fmtDuration, searchSongs, cifraClubLinks, findAudio,
-} from './music.js?v=18';
-import { drawArt, defaultArt, THEMES, FORMATS, loadImage } from './art.js?v=18';
+} from './music.js?v=19';
+import { drawArt, defaultArt, THEMES, FORMATS, loadImage } from './art.js?v=19';
+import { holyricsClient } from './holyrics.js?v=19';
 
 const LINK_FIELDS = [
   ['cifra', 'Cifra', 'doc'],
@@ -82,6 +83,8 @@ const I = {
   copy: '<rect x="8" y="8" width="12" height="12" rx="2"/><path d="M16 8V5a1 1 0 0 0-1-1H5a1 1 0 0 0-1 1v10a1 1 0 0 0 1 1h3"/>',
   sparkle: '<path d="M10 3l1.8 5.2L17 10l-5.2 1.8L10 17l-1.8-5.2L3 10l5.2-1.8zM18 14l.9 2.1L21 17l-2.1.9L18 20l-.9-2.1L15 17l2.1-.9z"/>',
   more: '<circle cx="12" cy="5" r="1.5"/><circle cx="12" cy="12" r="1.5"/><circle cx="12" cy="19" r="1.5"/>',
+  screen: '<rect x="3" y="4" width="18" height="12" rx="2"/><path d="M8 20h8M12 16v4"/>',
+  send: '<path d="M4 12l16-8-6 16-3-7z"/><path d="M11 13l9-9"/>',
 };
 const icon = (name, size = 22, extra = '') =>
   `<svg width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" ${extra}>${I[name]}</svg>`;
@@ -198,6 +201,17 @@ function ask(message, custom) {
     });
     wrap.querySelector('[data-r="0"]').focus();
   });
+}
+
+// Janela de andamento: mostra cada passo e, no fim, o resultado.
+function progress(text) {
+  const wrap = modal(`<div class="progress-row"><span class="spinner" aria-hidden="true"></span><p class="modal-text" data-p>${esc(text)}</p></div>`);
+  wrap.set = (t) => { const p = wrap.querySelector('[data-p]'); if (p) p.textContent = t; };
+  wrap.done = (html, bad) => {
+    wrap.querySelector('.modal').innerHTML = `<p class="modal-text" style="font-weight:500${bad ? ';color:var(--bad)' : ''}">${html}</p><button class="btn primary block" data-r="ok">OK</button>`;
+    wrap.addEventListener('click', (e) => { if (e.target.closest('[data-r="ok"]') || e.target === wrap) wrap.remove(); });
+  };
+  return wrap;
 }
 
 function showText(title, text) {
@@ -765,6 +779,8 @@ const SCREENS = {
             : '<div class="empty">Nenhuma música escolhida ainda.</div>'}
           ${admin ? `<button class="btn outline block" data-act="open" data-screen="addMusica" data-id="${ev.id}">${icon('plus', 18)}Adicionar música</button>` : ''}</div>
         <a class="btn outline block" target="_blank" rel="noopener" href="https://wa.me/?text=${encodeURIComponent(whatsappText(ev))}">${icon('share', 18)}Enviar escala no WhatsApp</a>
+        ${admin ? `<button class="btn outline block" data-act="sendHolyrics">${icon('screen', 18)}Enviar ao Holyrics</button>
+          ${ev.holyrics_sent_at ? `<p class="item-sub" style="text-align:center;margin:-8px 0 0">Enviado ao Holyrics ${fmtAgo(ev.holyrics_sent_at)}</p>` : ''}` : ''}
       </div>${bar}`;
     },
   },
@@ -1045,6 +1061,10 @@ const SCREENS = {
           ${menuItem('shapes', 'Classificações', 'classificacoes', S.md.categories.length)}
           ${menuItem('shield', 'Administradores', 'administradores', admins.length)}
         </div>
+        ${admin ? `<div class="section"><h2 class="h2">Integrações</h2><div class="list">
+          <button class="item" data-act="open" data-screen="holyrics"><span class="menu-ic">${icon('screen')}</span>
+            <span class="item-main"><span class="item-title">Holyrics</span><span class="item-sub">${S.md.hasHolyrics ? 'Conectado · envie escalas e músicas para o telão' : 'Conecte o Holyrics ao seu ministério'}</span></span>
+            ${S.md.hasHolyrics ? '<span class="tag confirmed">Ligado</span>' : ''}${icon('chev', 18)}</button></div></div>` : ''}
         <div class="list">
           <button class="item" data-act="open" data-screen="perfil">${face(S.profile, 'sm')}
             <span class="item-main"><span class="item-title">Meu perfil</span></span>${icon('chev', 18)}</button>
@@ -1237,6 +1257,51 @@ const SCREENS = {
           <label class="field"><span>Descrição <small>(opcional)</small></span><textarea class="input" name="description" maxlength="200" rows="3" style="min-height:90px" placeholder="Que tipo de música entra aqui">${esc(c.description)}</textarea></label>
           <button class="btn primary block">${id ? 'Salvar' : 'Adicionar'}</button></form>
         ${id ? `<button class="btn danger block" data-act="delCat" data-id="${id}" data-name="${esc(c.name)}">${icon('trash', 18)}Apagar classificação</button>` : ''}</div>`;
+    },
+  },
+
+  holyrics: {
+    view: () => {
+      const h = S.hly || {};
+      const steps = `<ol class="steps">
+          <li>No computador da igreja, abra o <strong>Holyrics</strong> e vá em <strong>Arquivo › Configurações › API Server</strong>.</li>
+          <li>Ligue <strong>“Permitir acesso pela internet”</strong> e copie a <strong>API Key</strong>.</li>
+          <li>Toque em <strong>Gerenciar permissões</strong>, crie um token (ex.: “Asa”) e copie o <strong>token</strong>.</li>
+          <li>Cole os dois aqui. Na primeira vez, o Holyrics mostra um pedido de permissão na tela: é só aceitar.</li></ol>`;
+      const form = `<form class="form card" data-form="holyrics">
+          <label class="field"><span>API Key</span><input class="input" name="api_key" required autocomplete="off" autocapitalize="off" spellcheck="false"></label>
+          <label class="field"><span>Token</span><input class="input" name="token" required autocomplete="off" autocapitalize="off" spellcheck="false"></label>
+          <button class="btn primary block">${icon('link', 18)}Conectar e testar</button></form>`;
+      const status = h.result ? `<div class="card form">
+          <div class="item static" style="padding:0;min-height:0"><span class="menu-ic">${icon('screen')}</span>
+            <span class="item-main"><span class="item-title">Holyrics ${esc(h.result.version)}</span>
+            <span class="item-sub">${h.result.plan === 'none' ? 'Sem Holyrics Plan' : 'Holyrics Plan ativo'}</span></span><span class="tag confirmed">Conectado</span></div>
+          ${h.result.missing.length ? `<div class="banner">Falta liberar no Holyrics: <strong>${esc(h.result.missing.join(', '))}</strong>. Apareceu um pedido de permissão na tela do Holyrics: aceite e toque em “Testar de novo”.</div>` : ''}
+        </div>` : h.error ? `<div class="error">${esc(h.error)}</div>` : '';
+      if (!S.md.hasHolyrics || h.editing) {
+        return `<div class="scroll">${backBtn('Ministério')}${header('Holyrics', 'Leve as escalas e as músicas do Asa para o telão')}
+          ${status}${steps}${form}
+          ${h.editing ? '<button class="btn link block" data-act="hlyCancel">Cancelar</button>' : ''}</div>`;
+      }
+      const plan = h.result ? h.result.plan !== 'none' : null;
+      return `<div class="scroll">${backBtn('Ministério')}${header('Holyrics', 'Conectado a este ministério')}
+        ${status || '<div class="card"><p class="sub" style="margin:0">Toque em “Testar conexão” com o Holyrics aberto no computador.</p></div>'}
+        <button class="btn primary block" data-act="hlyTest">${icon('bolt', 18)}${h.result ? 'Testar de novo' : 'Testar conexão'}</button>
+        <div class="section"><h2 class="h2">O que vai para o Holyrics</h2>
+          <div class="list">
+            <div class="item static"><span class="menu-ic">${icon('music')}</span><span class="item-main"><span class="item-title">Músicas do culto</span>
+              <span class="item-sub">Na ordem da escala. As que já existem no Holyrics são usadas; ${plan === false ? 'as que não existem precisam ser cadastradas lá (criar automaticamente precisa do Holyrics Plan).' : 'as que faltam são criadas com a letra, o tom e o BPM.'}</span></span></div>
+            <div class="item static"><span class="menu-ic">${icon('cal')}</span><span class="item-main"><span class="item-title">Culto na agenda</span>
+              <span class="item-sub">${plan === false ? 'Sem o Holyrics Plan, as músicas entram na lista aberta no Holyrics.' : 'O culto é marcado na data e hora certas, com a equipe na descrição.'}</span></span></div>
+            <div class="item static"><span class="menu-ic">${icon('people')}</span><span class="item-main"><span class="item-title">Membros e funções</span>
+              <span class="item-sub">Cadastra no Holyrics quem ainda não está lá (precisa do Holyrics Plan).</span></span></div>
+          </div></div>
+        <p class="sub">Para enviar um culto, abra a escala e toque em <strong>Enviar ao Holyrics</strong>. O Holyrics precisa estar aberto no computador da igreja.</p>
+        <button class="btn outline block" data-act="hlyTeam">${icon('people', 18)}Enviar membros e funções</button>
+        <div class="list">
+          <button class="item" data-act="hlyEdit"><span class="menu-ic">${icon('edit')}</span><span class="item-main"><span class="item-title">Trocar API Key e token</span></span>${icon('chev', 18)}</button>
+          <button class="item" data-act="hlyDisconnect"><span class="menu-ic" style="color:var(--bad)">${icon('x')}</span><span class="item-main"><span class="item-title" style="color:var(--bad)">Desconectar</span></span></button></div>
+      </div>`;
     },
   },
 
@@ -1517,6 +1582,44 @@ const ACTIONS = {
     if (await run(() => S.api.removeMember(d.id), 'Membro removido.')) { invalidate(); back(); }
   },
   minTab: (d) => { S.minTab = d.v; repaint(); },
+  hlyTest: async () => {
+    S.hly = { ...(S.hly || {}), error: '' };
+    const box = progress('Falando com o Holyrics…');
+    try { S.hly.result = await holyricsClient(S.api, S.mid).test(); }
+    catch (e) { S.hly.result = null; S.hly.error = e.message; }
+    box.remove();
+    repaint();
+  },
+  hlyEdit: () => { S.hly = { ...(S.hly || {}), editing: true }; repaint(); },
+  hlyCancel: () => { S.hly = { ...(S.hly || {}), editing: false }; repaint(); },
+  hlyDisconnect: async () => {
+    if (!(await ask('Desconectar o Holyrics deste ministério? As chaves são apagadas do Asa.', 'Desconectar'))) return;
+    if (await run(() => S.api.removeHolyrics(S.mid), 'Holyrics desconectado.')) { S.hly = null; invalidate(); refresh(); }
+  },
+  hlyTeam: async () => {
+    const box = progress('Enviando membros e funções…');
+    try {
+      const r = await holyricsClient(S.api, S.mid).sendTeam(S.md, (t) => box.set(t));
+      box.done(`<strong>Pronto!</strong><br>${r.roles ? `${r.roles} ${r.roles === 1 ? 'função nova' : 'funções novas'}` : 'Nenhuma função nova'} e ${r.members ? `${r.members} ${r.members === 1 ? 'membro novo' : 'membros novos'}` : 'nenhum membro novo'} no Holyrics. Quem já estava lá foi mantido.`);
+      invalidate();
+    } catch (e) { box.done(esc(e.message), true); }
+  },
+  sendHolyrics: async () => {
+    if (!S.md.hasHolyrics) return push('holyrics', {});
+    const ev = S.view.data.ev;
+    if (!ev.songs.length && !(await ask('Esta escala ainda não tem músicas. Enviar mesmo assim só com a equipe?', 'Enviar'))) return;
+    const box = progress('Conectando ao Holyrics…');
+    try {
+      const r = await holyricsClient(S.api, S.mid).sendEvent(ev, { nameOf, onStep: (t) => box.set(t) });
+      const lines = [];
+      if (r.target === 'culto') lines.push(`Culto <strong>${esc(ev.title)}</strong> ${r.event} na agenda do Holyrics com ${r.playlist} ${r.playlist === 1 ? 'música' : 'músicas'}.`);
+      else lines.push(r.playlist ? `${r.playlist} ${r.playlist === 1 ? 'música adicionada' : 'músicas adicionadas'} à lista aberta no Holyrics.` : 'As músicas já estavam na lista aberta no Holyrics.');
+      if (r.created.length) lines.push(`Criadas no Holyrics: ${esc(r.created.join(', '))}.`);
+      if (r.missing.length) lines.push(`<span style="color:var(--bad)">Não encontradas no Holyrics: ${esc(r.missing.join(', '))}.</span>${r.plan === 'none' ? ' Cadastre essas lá (ou assine o Holyrics Plan para o Asa criar sozinho) e envie de novo.' : ''}`);
+      box.done(`<strong>Enviado!</strong><br>${lines.join('<br><br>')}`);
+      invalidate(); screenCache.clear();
+    } catch (e) { box.done(esc(e.message), true); }
+  },
   removeCover: async () => {
     if (!(await ask('Remover a foto do ministério?', 'Remover'))) return;
     if (await run(() => S.api.removeMinistryCover(S.md.ministry), 'Foto removida.')) { invalidate(); refresh({ keepScroll: true }); }
@@ -1636,6 +1739,19 @@ const FORMS = {
     const role = S.md.roles.find((r) => r.id === id);
     const pos = Math.max(0, ...S.md.roles.map((r) => r.position || 0)) + 1;
     if (await run(() => (role ? S.api.renameRole(S.mid, role, name, ic) : S.api.addRole(S.mid, name, ic, pos)), role ? 'Função salva.' : 'Função adicionada.')) { invalidate(); back(); }
+  },
+  holyrics: async (f) => {
+    const creds = { api_key: f.get('api_key').trim(), token: f.get('token').trim() };
+    const box = progress('Testando a conexão com o Holyrics…');
+    let result;
+    try { result = await holyricsClient(S.api, S.mid, creds).test(); }
+    catch (e) { box.done(esc(e.message), true); return; }
+    try { await S.api.saveHolyrics(S.mid, creds.api_key, creds.token); }
+    catch (e) { box.done(esc(friendly(e.message)), true); return; }
+    box.remove();
+    S.hly = { result, editing: false };
+    toast('Holyrics conectado!');
+    invalidate(); refresh();
   },
   ministerio: async (f) => {
     if (await run(() => S.api.updateMinistry(S.mid, { name: f.get('name').trim() }), 'Ministério salvo.')) { invalidate(); back(); }
