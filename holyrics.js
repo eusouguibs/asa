@@ -2,7 +2,7 @@
 // O Holyrics precisa estar aberto no computador da igreja, com o "API Server" ligado para acesso pela internet.
 // Sem assinatura do Holyrics Plan dá para achar as músicas que já existem lá e montar a lista do culto;
 // com o Plan, o Asa também cria as músicas que faltam, o culto na agenda e os membros e funções.
-import { lyricsSlides } from './music.js?v=20';
+import { lyricsSlides } from './music.js?v=21';
 
 // Permissões que o token precisa ter no Holyrics.
 export const BASIC_ACTIONS = ['SearchLyrics', 'GetLyrics', 'GetLyricsPlaylist', 'AddLyricsToPlaylist', 'RemoveFromLyricsPlaylist', 'GetSchedules', 'GetHolyricsPlanInfo'];

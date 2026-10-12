@@ -219,6 +219,7 @@ export function demoAdapter(storage = globalThis.localStorage) {
         if (!a || a.user_id !== user) throw new Error('Esta escala não é sua.');
         a.status = args.p_status; save(); return null;
       }
+      if (name === 'admin_set_password') return null;
       if (name === 'delete_my_account') {
         db = seed(); save();
         return null;
@@ -228,6 +229,9 @@ export function demoAdapter(storage = globalThis.localStorage) {
     auth: {
       async user() { return db.session ? { id: db.session } : null; },
       async signIn() { db.session = 'me'; save(); listeners.forEach((f) => f()); return { instant: true }; },
+      async signInPassword() { db.session = 'me'; save(); listeners.forEach((f) => f()); },
+      async signUpPassword() { db.session = 'me'; save(); listeners.forEach((f) => f()); },
+      async changePassword() {},
       async signOut() { db.session = null; save(); listeners.forEach((f) => f()); },
       onChange(cb) { listeners.push(cb); },
     },
@@ -318,6 +322,24 @@ export async function supabaseAdapter(cfg) {
         }
         ok(await sb.auth.verifyOtp({ email, token: text.replace(/\D/g, ''), type: 'email' }));
       },
+      async signInPassword(email, password) {
+        const { error } = await sb.auth.signInWithPassword({ email: email.trim(), password });
+        if (error) throw new Error(/invalid login/i.test(error.message) ? 'E-mail ou senha incorretos.' : error.message);
+      },
+      // Criar conta. Se o e-mail já existe (de quando se entrava por código) e ainda não tem senha, cria a senha.
+      async signUpPassword(email, password) {
+        email = email.trim();
+        const { data, error } = await sb.auth.signUp({ email, password });
+        if (!error && data.session) return;
+        const exists = (error && /already|registered|exists/i.test(error.message)) || (data && data.user && !(data.user.identities || []).length);
+        if (error && !exists) throw new Error(error.message);
+        const { data: claimed, error: e2 } = await sb.rpc('set_initial_password', { p_email: email, p_password: password });
+        if (e2) throw new Error(e2.message);
+        if (!claimed) throw new Error('Este e-mail já tem senha. Toque em “Já tenho conta” para entrar.');
+        const { error: e3 } = await sb.auth.signInWithPassword({ email, password });
+        if (e3) throw new Error(e3.message);
+      },
+      async changePassword(password) { ok(await sb.auth.updateUser({ password })); },
       async signOut() { await sb.auth.signOut(); },
       onChange(cb) { sb.auth.onAuthStateChange((event) => cb(event)); },
     },
@@ -378,6 +400,7 @@ export function createApi(a) {
         .sort(byName);
     },
     deleteAccount: () => a.rpc('delete_my_account', {}),
+    adminSetPassword: (userId, password) => a.rpc('admin_set_password', { p_user: userId, p_password: password }),
     createMinistry: (name) => a.rpc('create_ministry', { p_name: name.trim() }),
     joinMinistry: (code) => a.rpc('join_ministry', { p_code: code.trim().toUpperCase() }),
 

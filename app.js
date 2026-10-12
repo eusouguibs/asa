@@ -1,11 +1,11 @@
 // Asa — telas e navegação do app.
-import { createApi, demoAdapter, supabaseAdapter, todayISO, addDays, artsOf, ROLE_ICONS, guessIcon } from './data.js?v=20';
+import { createApi, demoAdapter, supabaseAdapter, todayISO, addDays, artsOf, ROLE_ICONS, guessIcon } from './data.js?v=21';
 import {
   MAJOR_KEYS, MINOR_KEYS, parseKey, shiftKey, semitonesBetween, transposeText, detectKey,
   renderCifra, songLinks, fmtDuration, searchSongs, cifraClubLinks, findAudio,
-} from './music.js?v=20';
-import { drawArt, defaultArt, THEMES, FORMATS, loadImage } from './art.js?v=20';
-import { holyricsClient } from './holyrics.js?v=20';
+} from './music.js?v=21';
+import { drawArt, defaultArt, THEMES, FORMATS, loadImage } from './art.js?v=21';
+import { holyricsClient } from './holyrics.js?v=21';
 
 const LINK_FIELDS = [
   ['cifra', 'Cifra', 'doc'],
@@ -76,6 +76,8 @@ const I = {
   swap: '<path d="M7 7h12l-3-3M17 17H5l3 3"/>',
   out: '<path d="M15 4h4a1 1 0 0 1 1 1v14a1 1 0 0 1-1 1h-4M10 16l-4-4 4-4M6 12h10"/>',
   user: '<circle cx="12" cy="8" r="4"/><path d="M4 21c1-4 4-6 8-6s7 2 8 6"/>',
+  eye: '<path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/>',
+  key: '<circle cx="8" cy="15" r="4"/><path d="M11 12l9-9M17 6l3 3M15 8l2 2"/>',
   userPlus: '<circle cx="10" cy="8" r="4"/><path d="M2 21c1-4 4-6 8-6s7 2 8 6M19 7v6M16 10h6"/>',
   team: '<circle cx="12" cy="7" r="3"/><circle cx="5" cy="10" r="2.5"/><circle cx="19" cy="10" r="2.5"/><path d="M7 20c.6-3.4 2.6-5 5-5s4.4 1.6 5 5M1.5 19c.4-2.3 1.7-3.6 3.5-3.6M22.5 19c-.4-2.3-1.7-3.6-3.5-3.6"/>',
   shapes: '<path d="M12 3l5 8H7z"/><rect x="3" y="14" width="7" height="7" rx="1"/><circle cx="17.5" cy="17.5" r="3.5"/>',
@@ -373,6 +375,8 @@ function friendly(msg = '') {
   const m = msg.toLowerCase();
   const wait = msg.match(/after (\d+) seconds?/i);
   if (wait) return `Espere ${wait[1]} segundos para pedir outro código.`;
+  if (m.includes('password should be') || m.includes('at least 6')) return 'A senha precisa ter pelo menos 6 caracteres.';
+  if (m.includes('signups not allowed') || m.includes('signup is disabled')) return 'Criar conta está desligado no servidor. Avise o administrador do app.';
   if (m.includes('error sending') || m.includes('smtp')) return 'O Asa não conseguiu enviar o e-mail agora (falha no envio pelo Gmail). Avise o administrador do app e tente de novo em alguns minutos.';
   if (m.includes('rate limit')) return 'Muitos e-mails enviados em pouco tempo. Espere um pouco e tente de novo.';
   if (m.includes('expired') || m.includes('invalid') && m.includes('token')) return 'Código incorreto ou vencido. Confira o último e-mail ou peça outro.';
@@ -714,14 +718,34 @@ const SCREENS = {
           <button class="btn outline block" data-act="pasteLink">Colar link do e-mail</button>
           <button class="btn link" data-act="loginAgain">Usar outro e-mail ou reenviar</button></div>`;
       }
+      const mode = S.loginMode || 'entrar';
+      const email = esc(store.get('asa-email') || '');
+      if (mode === 'codigo') {
+        return `<div class="center-screen"><div class="brand">${logo(64)}<h1 class="h1">Entrar com código</h1>
+          <p class="sub">Você recebe um código no e-mail.</p></div>
+          <form class="form" data-form="login">
+            <label class="field"><span>Seu e-mail</span>
+              <input class="input" name="email" type="email" required autocomplete="email" inputmode="email" placeholder="voce@exemplo.com" value="${email}"></label>
+            <button class="btn primary block">Receber código de acesso</button></form>
+          <button class="btn link" data-act="loginMode" data-v="entrar">Voltar para e-mail e senha</button></div>`;
+      }
+      const criar = mode === 'criar';
       return `<div class="center-screen"><div class="brand">${logo(84)}<h1 class="h1">Asa</h1>
-        <p class="sub">Escalas, repertório e avisos do seu ministério, num lugar só.</p></div>
-        <form class="form" data-form="login">
+        <p class="sub">${criar ? 'Crie sua senha. Depois disso o Asa abre direto' + (installed() ? ' por este atalho.' : '.') : 'Escalas, repertório e avisos do seu ministério, num lugar só.'}</p></div>
+        <form class="form" data-form="senha" data-mode="${mode}">
           <label class="field"><span>Seu e-mail</span>
-            <input class="input" name="email" type="email" required autocomplete="email" inputmode="email" placeholder="voce@exemplo.com" value="${esc(store.get('asa-email') || '')}"></label>
-          <button class="btn primary block">Receber código de acesso</button>
-          <small class="sub" style="text-align:center">Sem senha: você recebe um código no e-mail. Depois de entrar uma vez, o Asa abre direto${installed() ? ' por este atalho' : ''}.</small>
-        </form></div>`;
+            <input class="input" name="email" type="email" required autocomplete="${criar ? 'email' : 'username'}" inputmode="email" placeholder="voce@exemplo.com" value="${email}"></label>
+          <label class="field"><span>${criar ? 'Crie uma senha' : 'Senha'}</span>
+            <span class="pass-row"><input class="input" name="password" type="password" required minlength="6" autocomplete="${criar ? 'new-password' : 'current-password'}" placeholder="${criar ? 'Pelo menos 6 letras ou números' : ''}">
+            <button type="button" class="icon-btn" data-act="showPass" aria-label="Mostrar senha">${icon('eye', 20)}</button></span></label>
+          <button class="btn primary block">${criar ? 'Criar conta e entrar' : 'Entrar'}</button>
+        </form>
+        <div class="login-links">
+          ${criar ? '<button class="btn link" data-act="loginMode" data-v="entrar">Já tenho senha</button>'
+            : '<button class="btn outline block" data-act="loginMode" data-v="criar">Primeiro acesso? Criar senha</button>'}
+          <button class="btn link" data-act="forgot">Esqueci a senha</button>
+          <button class="btn link small" data-act="loginMode" data-v="codigo" style="color:var(--muted)">Entrar com código por e-mail</button>
+        </div></div>`;
     },
   },
 
@@ -1276,6 +1300,8 @@ const SCREENS = {
         ${admin && !self ? `<div class="list">
           <button class="item" data-act="toggleAdmin" data-id="${x.id}" data-role="${x.role}"><span class="menu-ic">${icon('shield')}</span>
             <span class="item-main"><span class="item-title">${x.role === 'admin' ? 'Tirar de administrador' : 'Tornar administrador'}</span></span></button>
+          <button class="item" data-act="tempPassword" data-user="${x.user_id}" data-name="${esc(x.profile.name)}"><span class="menu-ic">${icon('key')}</span>
+            <span class="item-main"><span class="item-title">Criar senha provisória</span><span class="item-sub">Para quem esqueceu a senha</span></span></button>
           <button class="item" data-act="removeMember" data-id="${x.id}" data-name="${esc(x.profile.name)}"><span class="menu-ic" style="color:var(--bad)">${icon('out')}</span>
             <span class="item-main"><span class="item-title" style="color:var(--bad)">Remover do ministério</span></span></button></div>` : ''}
         ${self ? `<button class="btn outline block" data-act="open" data-screen="perfil">${icon('user', 18)}Editar nome, foto e aniversário</button>` : ''}
@@ -1461,6 +1487,12 @@ const SCREENS = {
           <input class="input" name="birthday" type="date" value="${esc(S.profile.birthday || '')}"></label>
         ${S.user.email ? `<p class="sub">Conta: ${esc(S.user.email)}</p>` : ''}
         <button class="btn primary block">Salvar</button></form>
+      ${S.api.mode === 'supabase' ? `<form class="form card" data-form="trocarSenha">
+        <h2 class="h2">Senha</h2>
+        <input type="email" name="username" value="${esc(S.user.email || '')}" autocomplete="username" hidden>
+        <label class="field"><span>Nova senha</span><input class="input" name="password" type="password" required minlength="6" autocomplete="new-password"></label>
+        <label class="field"><span>Repita a nova senha</span><input class="input" name="password2" type="password" required minlength="6" autocomplete="new-password"></label>
+        <button class="btn outline block">${icon('key', 18)}Trocar senha</button></form>` : ''}
       <div class="section" style="margin-top:12px">
         <h2 class="h2">Privacidade</h2>
         <a class="btn link" href="privacidade.html" target="_blank" rel="noopener" style="justify-content:flex-start">Política de privacidade</a>
@@ -1627,6 +1659,33 @@ const ACTIONS = {
 
   demoLogin: async () => { await S.api.auth.signIn(); invalidate(); refresh(); },
   loginAgain: () => { setLoginSent(null); refresh(); },
+  loginMode: (d) => { S.loginMode = d.v; setLoginSent(null); paint(); },
+  showPass: (d, el) => { const i = el.parentElement.querySelector('input'); i.type = i.type === 'password' ? 'text' : 'password'; i.focus(); },
+  forgot: () => {
+    const wrap = modal(`<h2 class="h2">Esqueci a senha</h2>
+      <p class="modal-text" style="font-weight:500">Peça para um <strong>administrador do seu ministério</strong> criar uma senha provisória para você no Asa (Ministério › Membros › seu nome › Criar senha provisória).<br><br>Depois de entrar, você pode trocar a senha em <strong>Meu perfil</strong>.</p>
+      <button class="btn primary block" data-r="ok">Entendi</button>`);
+    wrap.addEventListener('click', (e) => { if (e.target === wrap || e.target.closest('[data-r]')) wrap.remove(); });
+  },
+  tempPassword: (d) => {
+    const pass = String(Math.floor(100000 + Math.random() * 900000));
+    const wrap = modal(`<h2 class="h2">Senha provisória para ${esc(d.name)}</h2>
+      <p class="sub" style="margin:0">Use esta senha ou escreva outra (mínimo 6 caracteres). Depois, passe para a pessoa: ela entra com o e-mail dela e essa senha, e pode trocar em Meu perfil.</p>
+      <input class="input" data-temp value="${pass}" minlength="6" autocomplete="off" style="font-size:22px;letter-spacing:0.15em;text-align:center">
+      <div class="modal-actions"><button class="btn outline grow" data-r="0">Cancelar</button><button class="btn primary grow" data-r="1">Salvar senha</button></div>`);
+    wrap.addEventListener('click', async (e) => {
+      const b = e.target.closest('[data-r]');
+      if (e.target === wrap || b?.dataset.r === '0') return wrap.remove();
+      if (b?.dataset.r !== '1') return;
+      const v = wrap.querySelector('[data-temp]').value.trim();
+      if (v.length < 6) return toast('A senha precisa ter pelo menos 6 caracteres.');
+      b.disabled = true;
+      if (await run(() => S.api.adminSetPassword(d.user, v))) {
+        wrap.querySelector('.modal').innerHTML = `<p class="modal-text" style="font-weight:500">Pronto! Passe para ${esc(firstName(d.name))}:<br><br>Senha: <strong style="font-size:20px;letter-spacing:0.1em">${esc(v)}</strong><br><br>Ela entra com o e-mail dela e essa senha.</p>
+          <button class="btn primary block" data-r="0">OK</button>`;
+      } else b.disabled = false;
+    });
+  },
   pasteLink: async () => {
     let text = '';
     try { text = await navigator.clipboard.readText(); } catch { /* sem permissão para ler */ }
@@ -1792,6 +1851,19 @@ const FORMS = {
     const email = f.get('email').trim();
     store.set('asa-email', email);
     if (await run(() => S.api.auth.signIn(email))) { setLoginSent(email); refresh(); }
+  },
+  senha: async (f, el) => {
+    const email = f.get('email').trim();
+    const password = f.get('password');
+    store.set('asa-email', email);
+    const criar = el.dataset.mode === 'criar';
+    const ok = await run(() => (criar ? S.api.auth.signUpPassword(email, password) : S.api.auth.signInPassword(email, password)));
+    if (ok) { S.loginMode = null; invalidate(); refresh(); }
+  },
+  trocarSenha: async (f, el) => {
+    const p1 = f.get('password'); const p2 = f.get('password2');
+    if (p1 !== p2) return toast('As duas senhas não são iguais.');
+    if (await run(() => S.api.auth.changePassword(p1), 'Senha trocada.')) el.reset();
   },
   codigo: async (f) => {
     if (await run(() => S.api.auth.verifyCode(S.loginSent, f.get('code')))) { setLoginSent(null); invalidate(); refresh(); }
