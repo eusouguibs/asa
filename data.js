@@ -120,13 +120,19 @@ function seed() {
       id: 'es' + i, ministry_id: m, event_id, song_id, key, position,
     })),
     notices: [{ id: 'n1', ministry_id: m, author_id: 'ana', text: 'Ensaio no sábado, às 16h.', created_at: now }],
+    messages: [
+      ['ana', 'Bom dia, equipe! Domingo vamos abrir com “A Ele a Glória”.', 180],
+      ['lucas', 'Fechado! Vou ensaiar a segunda voz.', 150],
+      ['gu', 'Alguém sabe se o violão da igreja já voltou do conserto?', 60],
+      ['pedro', 'Voltou sim, está na sala de som.', 45],
+    ].map(([author_id, text, mins], i) => ({ id: 'msg' + i, ministry_id: m, author_id, text, created_at: new Date(Date.now() - mins * 60000).toISOString() })),
   };
 }
 
 const CASCADE = {
   events: [['assignments', 'event_id'], ['event_songs', 'event_id']],
   songs: [['event_songs', 'song_id']],
-  ministries: [['members', 'ministry_id'], ['roles', 'ministry_id'], ['teams', 'ministry_id'], ['categories', 'ministry_id'], ['songs', 'ministry_id'], ['events', 'ministry_id'], ['assignments', 'ministry_id'], ['event_songs', 'ministry_id'], ['notices', 'ministry_id']],
+  ministries: [['members', 'ministry_id'], ['roles', 'ministry_id'], ['teams', 'ministry_id'], ['categories', 'ministry_id'], ['messages', 'ministry_id'], ['songs', 'ministry_id'], ['events', 'ministry_id'], ['assignments', 'ministry_id'], ['event_songs', 'ministry_id'], ['notices', 'ministry_id']],
 };
 
 export function demoAdapter(storage = globalThis.localStorage) {
@@ -167,6 +173,11 @@ export function demoAdapter(storage = globalThis.localStorage) {
       save(); return clone(row);
     },
     async removeWhere(t, m) { db[t] = table(t).filter((r) => !match(r, m)); save(); },
+    async recent(t, m, col, limit) {
+      return table(t).filter((r) => match(r, m)).sort((a, b) => String(b[col]).localeCompare(String(a[col]))).slice(0, limit).map(clone);
+    },
+    async countAfter(t, m, col, value) { return table(t).filter((r) => match(r, m) && String(r[col]) > String(value)).length; },
+    subscribe() { return () => {}; },
     async fn() { throw new Error('Na demonstração não dá para conectar ao Holyrics. Entre com sua conta para usar.'); },
     async rpc(name, args) {
       const user = me();
@@ -261,6 +272,19 @@ export async function supabaseAdapter(cfg) {
     async remove(t, id) { ok(await sb.from(t).delete().eq('id', id)); },
     async upsert(t, row, key) { return ok(await sb.from(t).upsert(row, { onConflict: key }).select().single()); },
     async removeWhere(t, m) { ok(await sb.from(t).delete().match(m)); },
+    async recent(t, m, col, limit) { return ok(await sb.from(t).select('*').match(m).order(col, { ascending: false }).limit(limit)); },
+    async countAfter(t, m, col, value) {
+      const { count, error } = await sb.from(t).select('id', { count: 'exact', head: true }).match(m).gt(col, value);
+      if (error) throw new Error(error.message);
+      return count || 0;
+    },
+    // Avisa na hora quando algo muda numa tabela do ministério (usado pelo chat).
+    subscribe(t, mid, cb) {
+      const ch = sb.channel(`${t}-${mid}`)
+        .on('postgres_changes', { event: '*', schema: 'public', table: t, filter: `ministry_id=eq.${mid}` }, (p) => cb(p.eventType, p.new, p.old))
+        .subscribe();
+      return () => { sb.removeChannel(ch); };
+    },
     async rpc(name, args) { return ok(await sb.rpc(name, args)); },
     // Funções do servidor (Edge Functions), como a ponte com o Holyrics.
     async fn(name, body) {
@@ -534,6 +558,13 @@ export function createApi(a) {
     removeEventSong: (id) => a.remove('event_songs', id),
 
     notices: (mid) => a.list('notices', { ministry_id: mid }),
+
+    // Chat do ministério: últimas mensagens (da mais antiga para a mais nova).
+    async messages(mid, limit = 150) { return (await a.recent('messages', { ministry_id: mid }, 'created_at', limit)).reverse(); },
+    sendMessage: (mid, authorId, text) => a.insert('messages', { ministry_id: mid, author_id: authorId, text: text.trim() }),
+    deleteMessage: (id) => a.remove('messages', id),
+    unreadMessages: (mid, since) => a.countAfter('messages', { ministry_id: mid }, 'created_at', since),
+    onMessages: (mid, cb) => a.subscribe('messages', mid, cb),
     addNotice: (row) => a.insert('notices', row),
     removeNotice: (id) => a.remove('notices', id),
   };

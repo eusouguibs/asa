@@ -1,11 +1,11 @@
 // Asa — telas e navegação do app.
-import { createApi, demoAdapter, supabaseAdapter, todayISO, addDays, artsOf, ROLE_ICONS, guessIcon } from './data.js?v=19';
+import { createApi, demoAdapter, supabaseAdapter, todayISO, addDays, artsOf, ROLE_ICONS, guessIcon } from './data.js?v=20';
 import {
   MAJOR_KEYS, MINOR_KEYS, parseKey, shiftKey, semitonesBetween, transposeText, detectKey,
   renderCifra, songLinks, fmtDuration, searchSongs, cifraClubLinks, findAudio,
-} from './music.js?v=19';
-import { drawArt, defaultArt, THEMES, FORMATS, loadImage } from './art.js?v=19';
-import { holyricsClient } from './holyrics.js?v=19';
+} from './music.js?v=20';
+import { drawArt, defaultArt, THEMES, FORMATS, loadImage } from './art.js?v=20';
+import { holyricsClient } from './holyrics.js?v=20';
 
 const LINK_FIELDS = [
   ['cifra', 'Cifra', 'doc'],
@@ -85,6 +85,7 @@ const I = {
   more: '<circle cx="12" cy="5" r="1.5"/><circle cx="12" cy="12" r="1.5"/><circle cx="12" cy="19" r="1.5"/>',
   screen: '<rect x="3" y="4" width="18" height="12" rx="2"/><path d="M8 20h8M12 16v4"/>',
   send: '<path d="M4 12l16-8-6 16-3-7z"/><path d="M11 13l9-9"/>',
+  chat: '<path d="M4 5h16v11H9l-5 4z"/><path d="M8 9h8M8 12h5"/>',
 };
 const icon = (name, size = 22, extra = '') =>
   `<svg width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" ${extra}>${I[name]}</svg>`;
@@ -237,7 +238,7 @@ function showText(title, text) {
 let ctxReady = false;
 const invalidate = () => { ctxReady = false; };
 const screenCache = new Map();
-const CACHEABLE = new Set(['inicio', 'escalas', 'repertorio', 'ministerio', 'evento', 'musica', 'funcoes', 'ministerios']);
+const CACHEABLE = new Set(['inicio', 'escalas', 'repertorio', 'chat', 'ministerio', 'evento', 'musica', 'funcoes', 'ministerios']);
 let refreshSeq = 0;
 
 async function loadContext() {
@@ -259,6 +260,7 @@ async function loadContext() {
   if (!S.ministries.some((m) => m.id === S.mid)) { S.mid = S.ministries[0].id; store.set('asa-mid', S.mid); }
   S.md = await S.api.ministryData(S.mid);
   cleanupOnceADay();
+  startChat();
   ctxReady = true;
   return null;
 }
@@ -353,7 +355,7 @@ function cleanupOnceADay() {
 function paint(scrollTop = 0) {
   const { screen, params = {}, data = {} } = S.view;
   const def = SCREENS[screen];
-  const tabScreen = ['inicio', 'escalas', 'repertorio', 'ministerio'].includes(screen) && !S.stack.length;
+  const tabScreen = ['inicio', 'escalas', 'repertorio', 'chat', 'ministerio'].includes(screen) && !S.stack.length;
   root().innerHTML = `<div class="shell">${def.view(data, params)}${tabScreen ? navBar(screen) : ''}</div>`;
   const scroller = root().querySelector('.scroll');
   if (scroller) scroller.scrollTop = scrollTop;
@@ -371,6 +373,7 @@ function friendly(msg = '') {
   const m = msg.toLowerCase();
   const wait = msg.match(/after (\d+) seconds?/i);
   if (wait) return `Espere ${wait[1]} segundos para pedir outro código.`;
+  if (m.includes('error sending') || m.includes('smtp')) return 'O Asa não conseguiu enviar o e-mail agora (falha no envio pelo Gmail). Avise o administrador do app e tente de novo em alguns minutos.';
   if (m.includes('rate limit')) return 'Muitos e-mails enviados em pouco tempo. Espere um pouco e tente de novo.';
   if (m.includes('expired') || m.includes('invalid') && m.includes('token')) return 'Código incorreto ou vencido. Confira o último e-mail ou peça outro.';
   if (m.includes('failed to fetch') || m.includes('network')) return 'Sem conexão com a internet. Confira o sinal e tente de novo.';
@@ -394,9 +397,9 @@ async function run(fn, okMsg) {
 // ---------- Pedaços de tela ----------
 
 function navBar(active) {
-  const tabs = [['inicio', 'Início', 'home'], ['escalas', 'Escalas', 'cal'], ['repertorio', 'Repertório', 'music'], ['ministerio', 'Ministério', 'people']];
+  const tabs = [['inicio', 'Início', 'home'], ['escalas', 'Escalas', 'cal'], ['repertorio', 'Repertório', 'music'], ['chat', 'Chat', 'chat'], ['ministerio', 'Ministério', 'people']];
   return `<nav class="nav" aria-label="Menu principal">${tabs.map(([id, label, ic]) =>
-    `<button data-act="tab" data-tab="${id}" ${id === active ? 'aria-current="page"' : ''}><span class="pill">${icon(ic)}</span>${label}</button>`).join('')}</nav>`;
+    `<button data-act="tab" data-tab="${id}" ${id === active ? 'aria-current="page"' : ''}><span class="pill">${icon(ic)}${id === 'chat' ? `<span class="badge" data-badge ${S.unread && active !== 'chat' ? '' : 'hidden'}>${S.unread > 99 ? '99+' : S.unread}</span>` : ''}</span>${label}</button>`).join('')}</nav>`;
 }
 
 const backBtn = (label = 'Voltar') => `<button class="back" data-act="back">${icon('back', 20)}${esc(label)}</button>`;
@@ -586,6 +589,100 @@ function agenda(events, assigns, today) {
           <span class="item-sub">${e.date === today ? 'Hoje' : e.date === addDays(today, 1) ? 'Amanhã' : MON[d.getMonth()]}${e.time ? ' · ' + fmtTime(e.time) : ''} · ${n ? `${n} ${n === 1 ? 'pessoa' : 'pessoas'}` : 'equipe a definir'}</span></span>
         ${mine ? `<span class="tag pending">${esc(mine.role_name)}</span>` : ''}</span></button>`;
     }).join('')}</div></div>`;
+}
+
+// ---------- Chat ----------
+
+const readKey = () => 'asa-chat-lido-' + S.mid;
+let chatSub = null;
+let chatPoll = null;
+
+// Liga o "ao vivo" do chat do ministério atual e conta as mensagens não lidas.
+function startChat() {
+  if (chatSub && chatSub.mid === S.mid) return;
+  if (chatSub) chatSub.stop();
+  const mid = S.mid;
+  let stop = () => {};
+  try { stop = S.api.onMessages(mid, (type, row, old) => onChatEvent(mid, type, row, old)); } catch (e) { console.warn('chat ao vivo', e); }
+  chatSub = { mid, stop };
+  const since = store.get(readKey()) || (me() && me().created_at) || new Date(Date.now() - 7 * 864e5).toISOString();
+  S.api.unreadMessages(mid, since).then((n) => { if (S.mid === mid) { S.unread = current().name === 'chat' ? 0 : n; updateBadge(); } }).catch(() => {});
+}
+
+function updateBadge() {
+  const b = root().querySelector('[data-badge]');
+  if (!b) return;
+  b.hidden = !S.unread || current().name === 'chat';
+  b.textContent = S.unread > 99 ? '99+' : String(S.unread);
+}
+
+function onChatEvent(mid, type, row, old) {
+  if (mid !== S.mid) return;
+  screenCache.delete(`${S.mid}|chat|{}`);
+  const open = current().name === 'chat' && S.view && S.view.screen === 'chat';
+  if (type === 'INSERT' && row) {
+    if (open) { chatMerge([row]); markRead(); }
+    else if (row.author_id !== S.user?.id) { S.unread = (S.unread || 0) + 1; updateBadge(); }
+  }
+  if (type === 'DELETE' && old && open) chatRemove(old.id);
+}
+
+function markRead() { store.set(readKey(), new Date().toISOString()); S.unread = 0; }
+
+const CHAT_URL = /(https?:\/\/[^\s<]+)/g;
+const linkify = (t) => esc(t).replace(CHAT_URL, (u) => `<a href="${u}" target="_blank" rel="noopener">${u}</a>`);
+const dayLabel = (iso) => {
+  const d = new Date(iso); const t = todayISO(d); const today = todayISO();
+  if (t === today) return 'Hoje';
+  if (t === addDays(today, -1)) return 'Ontem';
+  return `${WDL[d.getDay()]}, ${d.getDate()} de ${MONL[d.getMonth()]}`;
+};
+const hhmm = (iso) => { const d = new Date(iso); return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`; };
+
+function chatHtml(msgs) {
+  if (!msgs.length) return `<div class="chat-empty">${icon('chat', 32)}<p><strong>Comece a conversa</strong><br>As mensagens aparecem para todo o ministério.</p></div>`;
+  let out = ''; let lastDay = ''; let prev = null;
+  for (const m of msgs) {
+    const day = todayISO(new Date(m.created_at));
+    if (day !== lastDay) { out += `<div class="chat-day"><span>${esc(dayLabel(m.created_at))}</span></div>`; lastDay = day; prev = null; }
+    const mine = m.author_id === S.user.id;
+    const cont = prev && prev.author_id === m.author_id && new Date(m.created_at) - new Date(prev.created_at) < 5 * 60000;
+    const p = profileOf(m.author_id);
+    out += `<div class="msg ${mine ? 'mine' : ''} ${cont ? 'cont' : ''} ${m.pending ? 'pending' : ''}" data-msg="${esc(m.id)}">
+      ${mine ? '' : `<span class="msg-face">${cont ? '' : face(p, 'sm')}</span>`}
+      <button class="bubble" data-act="msgMenu" data-id="${esc(m.id)}" data-mine="${mine ? 1 : ''}">
+        ${!mine && !cont ? `<span class="msg-name">${esc(firstName(p.name) === p.name ? p.name : p.name.split(' ').slice(0, 2).join(' '))}</span>` : ''}
+        <span class="msg-text">${linkify(m.text)}</span><span class="msg-time">${m.pending ? 'enviando…' : hhmm(m.created_at)}</span></button></div>`;
+    prev = m;
+  }
+  return out;
+}
+
+function chatRender(stick) {
+  const list = root().querySelector('.chat-list');
+  const sc = root().querySelector('.scroll');
+  if (!list || !sc || !S.view.data.msgs) return;
+  const near = sc.scrollHeight - sc.scrollTop - sc.clientHeight < 160;
+  list.innerHTML = chatHtml(S.view.data.msgs);
+  if (stick || near) sc.scrollTop = sc.scrollHeight;
+}
+
+function chatMerge(rows) {
+  const msgs = S.view.data.msgs || (S.view.data.msgs = []);
+  let changed = false;
+  for (const r of rows) {
+    if (msgs.some((x) => x.id === r.id)) continue;
+    const tmp = msgs.findIndex((x) => x.pending && x.author_id === r.author_id && x.text === r.text);
+    if (tmp >= 0) msgs[tmp] = r; else msgs.push(r);
+    changed = true;
+  }
+  if (changed) { msgs.sort((a, b) => String(a.created_at).localeCompare(String(b.created_at))); chatRender(false); }
+}
+
+function chatRemove(id) {
+  const msgs = S.view.data.msgs || [];
+  const i = msgs.findIndex((x) => x.id === id);
+  if (i >= 0) { msgs.splice(i, 1); chatRender(false); }
 }
 
 // ---------- Telas ----------
@@ -1031,6 +1128,30 @@ const SCREENS = {
   },
 
   // ----- Ministério -----
+  chat: {
+    load: async () => ({ msgs: await S.api.messages(S.mid) }),
+    view: ({ msgs }) => `<div class="scroll chat-scroll">
+        <div class="chat-head">${S.md.ministry.cover ? `<img class="avatar lg" src="${esc(S.md.ministry.cover)}" alt="">` : logo(40)}
+          <div class="title-block"><h1 class="h1" style="font-size:22px">Chat</h1><p class="sub">${esc(S.md.ministry.name)} · ${S.md.members.length} ${S.md.members.length === 1 ? 'membro' : 'membros'}</p></div></div>
+        <div class="chat-list" aria-live="polite">${chatHtml(msgs || [])}</div>
+      </div>
+      <form class="composer" data-form="chat">
+        <label class="sr-only" for="chat-input">Mensagem</label>
+        <textarea id="chat-input" name="text" rows="1" maxlength="2000" placeholder="Mensagem para o ministério" data-chat-input></textarea>
+        <button class="send-btn" aria-label="Enviar">${icon('send', 22)}</button></form>`,
+    after: () => {
+      const sc = root().querySelector('.scroll');
+      if (sc) sc.scrollTop = sc.scrollHeight;
+      markRead(); updateBadge();
+      // Rede de segurança: se o "ao vivo" falhar, confere novas mensagens a cada 10 segundos.
+      clearInterval(chatPoll);
+      chatPoll = setInterval(async () => {
+        if (current().name !== 'chat' || document.hidden) { if (current().name !== 'chat') clearInterval(chatPoll); return; }
+        try { const fresh = await S.api.messages(S.mid); if (current().name === 'chat') { chatMerge(fresh); markRead(); } } catch { /* sem rede */ }
+      }, 10000);
+    },
+  },
+
   ministerio: {
     view: () => {
       const m = S.md.ministry;
@@ -1582,6 +1703,12 @@ const ACTIONS = {
     if (await run(() => S.api.removeMember(d.id), 'Membro removido.')) { invalidate(); back(); }
   },
   minTab: (d) => { S.minTab = d.v; repaint(); },
+  msgMenu: async (d) => {
+    if (d.id.startsWith('tmp-')) return;
+    if (!d.mine && !isAdmin()) return;
+    if (!(await ask(d.mine ? 'Apagar sua mensagem para todos?' : 'Apagar esta mensagem para todos? (você é administrador)'))) return;
+    if (await run(() => S.api.deleteMessage(d.id))) chatRemove(d.id);
+  },
   hlyTest: async () => {
     S.hly = { ...(S.hly || {}), error: '' };
     const box = progress('Falando com o Holyrics…');
@@ -1740,6 +1867,28 @@ const FORMS = {
     const pos = Math.max(0, ...S.md.roles.map((r) => r.position || 0)) + 1;
     if (await run(() => (role ? S.api.renameRole(S.mid, role, name, ic) : S.api.addRole(S.mid, name, ic, pos)), role ? 'Função salva.' : 'Função adicionada.')) { invalidate(); back(); }
   },
+  chat: async (f, el) => {
+    const text = (f.get('text') || '').trim();
+    if (!text) return;
+    const input = el.querySelector('textarea');
+    input.value = ''; input.style.height = '';
+    const tmp = { id: 'tmp-' + Date.now(), ministry_id: S.mid, author_id: S.user.id, text, created_at: new Date().toISOString(), pending: true };
+    S.view.data.msgs.push(tmp);
+    chatRender(true);
+    try {
+      const saved = await S.api.sendMessage(S.mid, S.user.id, text);
+      const msgs = S.view.data.msgs;
+      const i = msgs.indexOf(tmp);
+      if (i >= 0) { if (msgs.some((x) => x.id === saved.id)) msgs.splice(i, 1); else msgs[i] = saved; }
+      markRead(); chatRender(false);
+      screenCache.delete(`${S.mid}|chat|{}`);
+    } catch (e) {
+      S.view.data.msgs.splice(S.view.data.msgs.indexOf(tmp), 1);
+      chatRender(false);
+      input.value = text;
+      toast(/messages|relation|schema cache/i.test(e.message) ? 'O chat ainda não foi ativado no servidor.' : friendly(e.message));
+    }
+  },
   holyrics: async (f) => {
     const creds = { api_key: f.get('api_key').trim(), token: f.get('token').trim() };
     const box = progress('Testando a conexão com o Holyrics…');
@@ -1798,6 +1947,12 @@ function wire() {
     if (!fn) return;
     e.preventDefault();
     fn({ ...el.dataset }, el);
+  });
+  // No computador, Enter envia a mensagem do chat (Shift+Enter pula linha).
+  document.addEventListener('keydown', (e) => {
+    if (e.key !== 'Enter' || e.shiftKey || e.isComposing || !e.target.matches('[data-chat-input]') || 'ontouchstart' in window) return;
+    e.preventDefault();
+    e.target.form.requestSubmit();
   });
   document.addEventListener('submit', async (e) => {
     const form = e.target.closest('form[data-form]');
@@ -1860,6 +2015,11 @@ function wire() {
         const img = root().querySelector('[data-art-preview]');
         if (img && S.view.data.ev) renderArt(img, S.view.data.ev, S.artEdit.kind, S.artEdit.settings, S.artEdit.photoImg);
       }, 250);
+      return;
+    }
+    if (e.target.dataset.chatInput !== undefined) {
+      e.target.style.height = '';
+      e.target.style.height = Math.min(e.target.scrollHeight, 140) + 'px';
       return;
     }
     if (e.target.dataset.guessIcon === '1') {
