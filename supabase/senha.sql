@@ -4,21 +4,27 @@
 
 create extension if not exists pgcrypto with schema extensions;
 
--- Quem já tinha conta (entrava por código) cria a primeira senha.
--- Só funciona enquanto a conta ainda não tem senha nenhuma.
+-- Quem já tinha conta (de quando se entrava por código) cria a primeira senha, uma única vez.
+-- Vale só para contas criadas antes da troca para senha; contas novas já nascem com senha.
+create table if not exists public.password_claimed (user_id uuid primary key references auth.users (id) on delete cascade, at timestamptz not null default now());
+alter table public.password_claimed enable row level security;
+
 create or replace function public.set_initial_password(p_email text, p_password text) returns boolean
 language plpgsql security definer set search_path = public, extensions as $$
 declare uid uuid;
 begin
   if length(coalesce(p_password, '')) < 6 then raise exception 'A senha precisa ter pelo menos 6 caracteres.'; end if;
-  select id into uid from auth.users
-    where lower(email) = lower(trim(p_email)) and coalesce(encrypted_password, '') = '';
+  select u.id into uid from auth.users u
+    where lower(u.email) = lower(trim(p_email))
+      and u.created_at < '2026-10-12 22:30+00'
+      and not exists (select 1 from password_claimed c where c.user_id = u.id);
   if uid is null then return false; end if;
   update auth.users
     set encrypted_password = extensions.crypt(p_password, extensions.gen_salt('bf')),
         email_confirmed_at = coalesce(email_confirmed_at, now()),
         updated_at = now()
     where id = uid;
+  insert into password_claimed (user_id) values (uid);
   return true;
 end;
 $$;
