@@ -28,7 +28,28 @@ function nextWeekday(fromIso, weekday) {
   return addDays(fromIso, diff);
 }
 
-export const DEFAULT_ROLES = ['Ministro(a)', 'Vocal', 'Teclado', 'Violão', 'Guitarra', 'Baixo', 'Bateria', 'Som', 'Projeção'];
+export const DEFAULT_ROLES = ['Ministro(a)', 'Vocal', 'Backing vocal', 'Teclado', 'Violão', 'Guitarra', 'Baixo', 'Bateria', 'Som', 'Projeção'];
+
+// Ícones para escolher nas funções.
+export const ROLE_ICONS = ['🎙️', '🎤', '🎹', '🪕', '🎸', '🥁', '🎻', '🎺', '🎷', '🪗', '🪘', '🎛️', '🎧', '📽️', '💻', '📷', '🎥', '💡', '🙏', '📖', '🎵', '⭐'];
+
+// Ícone sugerido pelo nome da função.
+export function guessIcon(name = '') {
+  const n = name.toLowerCase();
+  const rules = [[/ministr/, '🎙️'], [/vo[cz]|back|canto|coral/, '🎤'], [/tecla|piano|synth/, '🎹'], [/viol[aã]o/, '🪕'], [/guitar|baix/, '🎸'],
+    [/bater|percuss|cajon/, '🥁'], [/violino|viola|cello/, '🎻'], [/trompet|trombon/, '🎺'], [/sax/, '🎷'], [/acorde|sanfon/, '🪗'],
+    [/som|mesa|[aá]udio/, '🎛️'], [/proje|m[ií]dia|data ?show|telão/, '📽️'], [/foto/, '📷'], [/filma|v[ií]deo|transmi/, '🎥'], [/luz|ilumina/, '💡'], [/ora[cç]/, '🙏']];
+  return (rules.find(([re]) => re.test(n)) || [null, '🎵'])[1];
+}
+
+export const DEFAULT_CATEGORIES = [
+  ['Adoração', 'Músicas que exaltam quem Deus é.'],
+  ['Louvor', 'Gratidão pelo que Deus fez, faz e fará.'],
+  ['Celebração', 'Músicas alegres, para celebrar.'],
+  ['Consagração', 'Entrega e dedicação da vida a Deus.'],
+  ['Ceia', 'Para a santa ceia.'],
+  ['Especiais', 'Casamentos, batismos e datas especiais.'],
+];
 
 // ---------- Modo demonstração ----------
 
@@ -55,7 +76,7 @@ function seed() {
     ['s4', 'A Ele a Glória', 'Gabriela Rocha', 'G'],
     ['s5', 'Ao Que Está Assentado Sobre o Trono', 'Davi Fernandes & Cultura do Céu', 'A'],
     ['s6', 'Ao Único', 'Aline Barros', 'C'],
-  ].map(([id, title, artist, key]) => ({ id, ministry_id: m, title, artist, key, link: '', content: '' }));
+  ].map(([id, title, artist, key], i) => ({ id, ministry_id: m, title, artist, key, link: '', content: '', categories: [['c0'], ['c1', 'c2'], ['c1'], ['c0'], ['c0', 'c3'], ['c2']][i] }));
   const now = new Date().toISOString();
   return {
     session: null,
@@ -64,8 +85,14 @@ function seed() {
     members: people.map((p) => ({
       id: 'mem-' + p.id, ministry_id: m, user_id: p.id,
       role: p.id === 'me' || p.id === 'ana' ? 'admin' : 'member', created_at: now,
+      skills: { me: ['Teclado', 'Vocal'], ana: ['Ministro(a)', 'Vocal'], lucas: ['Vocal', 'Backing vocal'], gu: ['Violão', 'Guitarra'], eduardo: ['Bateria'], pedro: ['Som', 'Projeção'] }[p.id] || [],
     })),
-    roles: DEFAULT_ROLES.map((name, i) => ({ id: 'r' + i, ministry_id: m, name })),
+    roles: DEFAULT_ROLES.map((name, i) => ({ id: 'r' + i, ministry_id: m, name, icon: guessIcon(name), position: i + 1 })),
+    teams: [
+      { id: 't1', ministry_id: m, name: 'Vocal', member_ids: ['ana', 'lucas', 'me'], created_at: now },
+      { id: 't2', ministry_id: m, name: 'Banda', member_ids: ['gu', 'eduardo', 'me'], created_at: now },
+    ],
+    categories: DEFAULT_CATEGORIES.map(([name, description], i) => ({ id: 'c' + i, ministry_id: m, name, description, created_at: now })),
     songs,
     events: [
       { id: 'e1', ministry_id: m, title: 'Culto de domingo', date: sun, time: '19:00', notes: 'Chegar às 18h para passar o som.', created_at: now },
@@ -99,7 +126,7 @@ function seed() {
 const CASCADE = {
   events: [['assignments', 'event_id'], ['event_songs', 'event_id']],
   songs: [['event_songs', 'song_id']],
-  ministries: [['members', 'ministry_id'], ['roles', 'ministry_id'], ['songs', 'ministry_id'], ['events', 'ministry_id'], ['assignments', 'ministry_id'], ['event_songs', 'ministry_id'], ['notices', 'ministry_id']],
+  ministries: [['members', 'ministry_id'], ['roles', 'ministry_id'], ['teams', 'ministry_id'], ['categories', 'ministry_id'], ['songs', 'ministry_id'], ['events', 'ministry_id'], ['assignments', 'ministry_id'], ['event_songs', 'ministry_id'], ['notices', 'ministry_id']],
 };
 
 export function demoAdapter(storage = globalThis.localStorage) {
@@ -139,8 +166,9 @@ export function demoAdapter(storage = globalThis.localStorage) {
       if (name === 'create_ministry') {
         const id = uid();
         table('ministries').push({ id, name: args.p_name, invite_code: code6(), owner_id: user, created_at: new Date().toISOString() });
-        table('members').push({ id: uid(), ministry_id: id, user_id: user, role: 'admin', created_at: new Date().toISOString() });
-        DEFAULT_ROLES.forEach((n) => table('roles').push({ id: uid(), ministry_id: id, name: n }));
+        table('members').push({ id: uid(), ministry_id: id, user_id: user, role: 'admin', skills: [], created_at: new Date().toISOString() });
+        DEFAULT_ROLES.forEach((n, i) => table('roles').push({ id: uid(), ministry_id: id, name: n, icon: guessIcon(n), position: i + 1 }));
+        DEFAULT_CATEGORIES.forEach(([n, d]) => table('categories').push({ id: uid(), ministry_id: id, name: n, description: d, created_at: new Date().toISOString() }));
         save(); return id;
       }
       if (name === 'join_ministry') {
@@ -151,6 +179,22 @@ export function demoAdapter(storage = globalThis.localStorage) {
           save();
         }
         return min.id;
+      }
+      if (name === 'set_my_skills') {
+        const mem = table('members').find((x) => x.ministry_id === args.p_ministry && x.user_id === user);
+        if (!mem) throw new Error('Você não participa deste ministério.');
+        mem.skills = args.p_skills || []; save(); return null;
+      }
+      if (name === 'new_invite_code') {
+        const min = table('ministries').find((x) => x.id === args.p_ministry);
+        min.invite_code = code6(); save(); return min.invite_code;
+      }
+      if (name === 'seed_categories') {
+        if (!table('categories').some((x) => x.ministry_id === args.p_ministry)) {
+          DEFAULT_CATEGORIES.forEach(([n, d]) => table('categories').push({ id: uid(), ministry_id: args.p_ministry, name: n, description: d, created_at: new Date().toISOString() }));
+          save();
+        }
+        return null;
       }
       if (name === 'set_my_status') {
         const a = table('assignments').find((x) => x.id === args.p_id);
@@ -294,28 +338,78 @@ export function createApi(a) {
     joinMinistry: (code) => a.rpc('join_ministry', { p_code: code.trim().toUpperCase() }),
 
     async ministryData(mid) {
-      // 2 idas ao servidor em vez de 4: ministério, membros e funções juntos; depois os perfis.
-      const [[ministry], members, roles] = await Promise.all([
+      // 2 idas ao servidor: ministério, membros, funções, equipes e classificações juntos; depois os perfis.
+      const optional = (p) => p.catch(() => []); // banco ainda sem as tabelas novas
+      const [[ministry], members, roles, teams, categories] = await Promise.all([
         a.list('ministries', { id: mid }), a.list('members', { ministry_id: mid }), a.list('roles', { ministry_id: mid }),
+        optional(a.list('teams', { ministry_id: mid })), optional(a.list('categories', { ministry_id: mid })),
       ]);
       const profiles = await a.listIn('profiles', 'id', members.map((m) => m.user_id));
       return {
         ministry,
         members: members
-          .map((m) => ({ ...m, profile: profiles.find((p) => p.id === m.user_id) || { id: m.user_id, name: 'Sem nome' } }))
+          .map((m) => ({ ...m, skills: m.skills || [], profile: profiles.find((p) => p.id === m.user_id) || { id: m.user_id, name: 'Sem nome' } }))
           .sort((x, y) => byName(x.profile, y.profile)),
-        roles: roles.sort((x, y) => {
-          // funções padrão na ordem de um culto (ministro primeiro, som e projeção no fim); as novas, depois, em ordem alfabética
+        roles: roles.map((r) => ({ ...r, icon: r.icon || guessIcon(r.name) })).sort((x, y) => {
+          // pela ordem escolhida; sem ordem, funções padrão na ordem de um culto e as novas em ordem alfabética
+          const px = x.position || 0; const py = y.position || 0;
+          if (px || py) return (px || 999) - (py || 999) || byName(x, y);
           const ix = DEFAULT_ROLES.indexOf(x.name); const iy = DEFAULT_ROLES.indexOf(y.name);
           return (ix < 0 ? 99 : ix) - (iy < 0 ? 99 : iy) || byName(x, y);
         }),
+        teams: teams.map((t) => ({ ...t, member_ids: t.member_ids || [] })).sort(byName),
+        categories: categories.sort(byName),
       };
     },
     updateMinistry: (id, patch) => a.update('ministries', id, patch),
+    // Foto de capa do ministério (fica na pasta do ministério; a antiga é apagada).
+    async setMinistryCover(m, blob) {
+      const url = await a.storage.upload(`${m.id}/capa-${Date.now()}.jpg`, blob);
+      await a.update('ministries', m.id, { cover: url });
+      if (m.cover) await removeBanners([m.cover]);
+      return url;
+    },
+    async removeMinistryCover(m) {
+      await a.update('ministries', m.id, { cover: '' });
+      if (m.cover) await removeBanners([m.cover]);
+    },
+    newInviteCode: (mid) => a.rpc('new_invite_code', { p_ministry: mid }),
     setMemberRole: (memberId, role) => a.update('members', memberId, { role }),
+    setMemberSkills: (memberId, skills) => a.update('members', memberId, { skills }),
+    setMySkills: (mid, skills) => a.rpc('set_my_skills', { p_ministry: mid, p_skills: skills }),
     removeMember: (memberId) => a.remove('members', memberId),
-    addRole: (mid, name) => a.insert('roles', { ministry_id: mid, name: name.trim() }),
+    addRole: (mid, name, icon, position) => a.insert('roles', { ministry_id: mid, name: name.trim(), icon: icon || guessIcon(name), position: position || 0 }),
+    updateRole: (id, patch) => a.update('roles', id, patch),
     removeRole: (id) => a.remove('roles', id),
+    // Ao renomear uma função, quem já tinha a função continua com ela.
+    async renameRole(mid, role, name, icon) {
+      await a.update('roles', role.id, { name: name.trim(), icon });
+      if (name.trim() === role.name) return;
+      const members = await a.list('members', { ministry_id: mid });
+      for (const m of members.filter((x) => (x.skills || []).includes(role.name))) {
+        await a.update('members', m.id, { skills: m.skills.map((s) => (s === role.name ? name.trim() : s)) });
+      }
+    },
+    saveTeam: (t) => (t.id
+      ? a.update('teams', t.id, { name: t.name.trim(), member_ids: t.member_ids })
+      : a.insert('teams', { ministry_id: t.ministry_id, name: t.name.trim(), member_ids: t.member_ids })),
+    removeTeam: (id) => a.remove('teams', id),
+    saveCategory: (c) => (c.id
+      ? a.update('categories', c.id, { name: c.name.trim(), description: (c.description || '').trim() })
+      : a.insert('categories', { ministry_id: c.ministry_id, name: c.name.trim(), description: (c.description || '').trim() })),
+    removeCategory: (id) => a.remove('categories', id),
+    seedCategories: (mid) => a.rpc('seed_categories', { p_ministry: mid }),
+    // Foto de perfil: banners/avatars/<pessoa>/<arquivo>.
+    async setAvatar(profile, blob) {
+      const url = await a.storage.upload(`avatars/${profile.id}/${Date.now()}.jpg`, blob);
+      await api.saveProfile(profile.id, { avatar: url });
+      if (profile.avatar) await removeBanners([profile.avatar]);
+      return url;
+    },
+    async removeAvatar(profile) {
+      await api.saveProfile(profile.id, { avatar: '' });
+      if (profile.avatar) await removeBanners([profile.avatar]);
+    },
 
     events: (mid) => a.list('events', { ministry_id: mid }),
     allAssignments: (mid) => a.list('assignments', { ministry_id: mid }),
@@ -394,12 +488,13 @@ export function createApi(a) {
         link: (s.link || '').trim(), content: s.content || '',
       };
       const extra = { artwork: s.artwork || '', duration: Number(s.duration) || 0, bpm: Number(s.bpm) || 0, links: s.links || {} };
+      if (Array.isArray(s.categories)) extra.categories = s.categories;
       const save = (fields) => (s.id ? a.update('songs', s.id, fields) : a.insert('songs', { ministry_id: s.ministry_id, ...fields }));
       try {
         return await save({ ...base, ...extra });
       } catch (e) {
         // Banco ainda sem as colunas novas (capa, duração, BPM): salva o essencial mesmo assim.
-        if (/artwork|duration|bpm|links/i.test(e.message || '')) return save(base);
+        if (/artwork|duration|bpm|links|categories/i.test(e.message || '')) return save(base);
         throw e;
       }
     },

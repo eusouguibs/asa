@@ -1,10 +1,10 @@
 // Asa — telas e navegação do app.
-import { createApi, demoAdapter, supabaseAdapter, todayISO, addDays, artsOf } from './data.js?v=17';
+import { createApi, demoAdapter, supabaseAdapter, todayISO, addDays, artsOf, ROLE_ICONS, guessIcon } from './data.js?v=18';
 import {
   MAJOR_KEYS, MINOR_KEYS, parseKey, shiftKey, semitonesBetween, transposeText, detectKey,
   renderCifra, songLinks, fmtDuration, searchSongs, cifraClubLinks, findAudio,
-} from './music.js?v=17';
-import { drawArt, defaultArt, THEMES, FORMATS, loadImage } from './art.js?v=17';
+} from './music.js?v=18';
+import { drawArt, defaultArt, THEMES, FORMATS, loadImage } from './art.js?v=18';
 
 const LINK_FIELDS = [
   ['cifra', 'Cifra', 'doc'],
@@ -38,6 +38,11 @@ const fmtAgo = (ts) => {
 };
 const initial = (name) => esc((name || '?').trim().charAt(0).toUpperCase() || '?');
 const firstName = (name) => (name || '').trim().split(/\s+/)[0] || '';
+// Foto de perfil, ou a inicial do nome.
+const face = (p, cls = '') => (p && p.avatar
+  ? `<img class="avatar ${cls}" src="${esc(p.avatar)}" alt="" loading="lazy">`
+  : `<span class="avatar ${cls}">${initial(p && p.name)}</span>`);
+const profileOf = (userId) => S.md?.members.find((m) => m.user_id === userId)?.profile || { name: '?' };
 const nextSunday = () => { const t = todayISO(); const dow = parseISO(t).getDay(); return addDays(t, (7 - dow) % 7 || 7); };
 const byDate = (a, b) => (a.date + (a.time || '')).localeCompare(b.date + (b.time || ''));
 
@@ -70,6 +75,13 @@ const I = {
   swap: '<path d="M7 7h12l-3-3M17 17H5l3 3"/>',
   out: '<path d="M15 4h4a1 1 0 0 1 1 1v14a1 1 0 0 1-1 1h-4M10 16l-4-4 4-4M6 12h10"/>',
   user: '<circle cx="12" cy="8" r="4"/><path d="M4 21c1-4 4-6 8-6s7 2 8 6"/>',
+  userPlus: '<circle cx="10" cy="8" r="4"/><path d="M2 21c1-4 4-6 8-6s7 2 8 6M19 7v6M16 10h6"/>',
+  team: '<circle cx="12" cy="7" r="3"/><circle cx="5" cy="10" r="2.5"/><circle cx="19" cy="10" r="2.5"/><path d="M7 20c.6-3.4 2.6-5 5-5s4.4 1.6 5 5M1.5 19c.4-2.3 1.7-3.6 3.5-3.6M22.5 19c-.4-2.3-1.7-3.6-3.5-3.6"/>',
+  shapes: '<path d="M12 3l5 8H7z"/><rect x="3" y="14" width="7" height="7" rx="1"/><circle cx="17.5" cy="17.5" r="3.5"/>',
+  camera: '<path d="M4 8h3l2-3h6l2 3h3v11H4z"/><circle cx="12" cy="13" r="3.5"/>',
+  copy: '<rect x="8" y="8" width="12" height="12" rx="2"/><path d="M16 8V5a1 1 0 0 0-1-1H5a1 1 0 0 0-1 1v10a1 1 0 0 0 1 1h3"/>',
+  sparkle: '<path d="M10 3l1.8 5.2L17 10l-5.2 1.8L10 17l-1.8-5.2L3 10l5.2-1.8zM18 14l.9 2.1L21 17l-2.1.9L18 20l-.9-2.1L15 17l2.1-.9z"/>',
+  more: '<circle cx="12" cy="5" r="1.5"/><circle cx="12" cy="12" r="1.5"/><circle cx="12" cy="19" r="1.5"/>',
 };
 const icon = (name, size = 22, extra = '') =>
   `<svg width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" ${extra}>${I[name]}</svg>`;
@@ -172,13 +184,13 @@ function modal(inner) {
   return wrap;
 }
 
-function ask(message) {
-  const label = message.startsWith('Sair') ? 'Sair' : message.startsWith('Remover') ? 'Remover'
-    : /^(Excluir|Tem certeza)/.test(message) ? 'Excluir' : 'Apagar';
+function ask(message, custom) {
+  const label = custom || (message.startsWith('Sair') ? 'Sair' : message.startsWith('Remover') ? 'Remover'
+    : /^(Excluir|Tem certeza)/.test(message) ? 'Excluir' : 'Apagar');
   return new Promise((resolve) => {
     const wrap = modal(`<p class="modal-text">${esc(message)}</p>
       <div class="modal-actions"><button class="btn outline grow" data-r="0">Cancelar</button>
-      <button class="btn danger grow" data-r="1">${label}</button></div>`);
+      <button class="btn ${custom ? 'primary' : 'danger'} grow" data-r="1">${label}</button></div>`);
     const close = (v) => { wrap.remove(); resolve(v); };
     wrap.addEventListener('click', (e) => {
       const b = e.target.closest('[data-r]');
@@ -211,7 +223,7 @@ function showText(title, text) {
 let ctxReady = false;
 const invalidate = () => { ctxReady = false; };
 const screenCache = new Map();
-const CACHEABLE = new Set(['inicio', 'escalas', 'repertorio', 'ministerio', 'evento', 'musica', 'membros', 'funcoes', 'ministerios']);
+const CACHEABLE = new Set(['inicio', 'escalas', 'repertorio', 'ministerio', 'evento', 'musica', 'funcoes', 'ministerios']);
 let refreshSeq = 0;
 
 async function loadContext() {
@@ -375,6 +387,8 @@ function navBar(active) {
 
 const backBtn = (label = 'Voltar') => `<button class="back" data-act="back">${icon('back', 20)}${esc(label)}</button>`;
 const header = (title, sub) => `<div class="title-block"><h1 class="h1">${esc(title)}</h1>${sub ? `<p class="sub">${esc(sub)}</p>` : ''}</div>`;
+const menuItem = (ic, label, screen, count) => `<button class="item" data-act="open" data-screen="${screen}"><span class="menu-ic">${icon(ic)}</span>
+  <span class="item-main"><span class="item-title">${esc(label)}</span></span>${count != null ? `<span class="item-sub">${count}</span>` : ''}${icon('chev', 18)}</button>`;
 const fab = (act, label) => `<button class="fab" data-act="${act}">${icon('plus', 20)}${esc(label)}</button>`;
 const tagStatus = (s) => `<span class="tag ${s}">${s === 'confirmed' ? '✓ ' : s === 'declined' ? '✕ ' : ''}${STATUS[s]}</span>`;
 const demoBanner = () => (S.api.mode === 'demo'
@@ -649,7 +663,7 @@ const SCREENS = {
         <div class="topbar">${logo(36)}
           <button class="grow" data-act="${multi ? 'open' : 'tab'}" data-screen="ministerios" data-tab="ministerio" style="border:0;background:none;text-align:left;padding:0;cursor:pointer;display:flex;flex-direction:column">
             <span class="item-sub">Ministério</span><span style="font-size:16px;font-weight:700">${esc(S.md.ministry.name)}${multi ? ' ▾' : ''}</span></button>
-          <button class="avatar lg me" data-act="open" data-screen="perfil" aria-label="Meu perfil" style="border:0;cursor:pointer">${initial(S.profile.name)}</button>
+          <button class="avatar-btn" data-act="open" data-screen="perfil" aria-label="Meu perfil">${face(S.profile, 'lg me')}</button>
         </div>
         ${demoBanner()}
         <div class="title-block"><h1 class="h1">Olá, ${esc(firstName(S.profile.name))}</h1>
@@ -674,7 +688,7 @@ const SCREENS = {
             ${isAdmin() ? `<button class="icon-btn" data-act="delNotice" data-id="${n.id}" aria-label="Apagar aviso">${icon('x', 18)}</button>` : ''}</div>`).join('')}</div>`
             : '<div class="empty">Nenhum aviso por enquanto.</div>'}</div>
         <div class="section"><h2 class="h2">Aniversariantes de ${MONL[Number(month) - 1]}</h2>
-          ${bdays.length ? `<div class="list">${bdays.map((m) => `<div class="item static"><span class="avatar gold">${initial(m.profile.name)}</span>
+          ${bdays.length ? `<div class="list">${bdays.map((m) => `<div class="item static">${m.profile.avatar ? face(m.profile) : `<span class="avatar gold">${initial(m.profile.name)}</span>`}
             <div class="item-main"><span class="item-title">${esc(m.profile.name)}</span><span class="item-sub">${Number(m.profile.birthday.slice(8))} de ${MONL[Number(month) - 1]}</span></div></div>`).join('')}</div>`
             : '<div class="empty">Ninguém faz aniversário este mês.</div>'}</div>
       </div>`;
@@ -735,7 +749,7 @@ const SCREENS = {
         ${ev.notes ? `<div class="card notes">${esc(ev.notes)}</div>` : ''}
         <div class="section"><div class="section-head"><h2 class="h2">Equipe</h2><span class="item-sub">${ev.assignments.length ? `${ok} de ${ev.assignments.length} confirmados` : ''}</span></div>
           ${team.length ? `<div class="list">${team.map((a) => `<div class="item static">
-            <span class="avatar ${a.user_id === S.user.id ? 'me' : ''}">${initial(nameOf(a.user_id))}</span>
+            ${face(profileOf(a.user_id), a.user_id === S.user.id ? 'me' : '')}
             <div class="item-main"><span class="item-title">${a.user_id === S.user.id ? 'Você' : esc(nameOf(a.user_id))}</span><span class="item-sub">${esc(a.role_name)}</span></div>
             ${tagStatus(a.status)}
             ${admin ? `<button class="icon-btn" data-act="unassign" data-id="${a.id}" aria-label="Tirar da escala">${icon('x', 18)}</button>` : ''}</div>`).join('')}</div>`
@@ -824,16 +838,17 @@ const SCREENS = {
     view: ({ ev }) => `<div class="scroll">${backBtn()}${header('Escalar pessoa', `${ev.title} · ${fmtShort(ev.date, ev.time)}`)}
       <form class="form" data-form="escalar" data-id="${ev.id}">
         <label class="field"><span>Função</span>
-          <select class="input" name="role" required><option value="">Escolha a função</option>
-          ${S.md.roles.map((r) => `<option>${esc(r.name)}</option>`).join('')}</select>
+          <select class="input" name="role" required data-change="escalarRole"><option value="">Escolha a função</option>
+          ${S.md.roles.map((r) => `<option value="${esc(r.name)}">${r.icon} ${esc(r.name)}</option>`).join('')}</select>
           ${S.md.roles.length ? '' : '<small>Cadastre funções em Ministério › Funções.</small>'}</label>
         <fieldset class="field" style="border:0;padding:0;margin:0"><legend style="font-size:14px;font-weight:700;margin-bottom:6px">Pessoa</legend>
           <div class="list">${S.md.members.map((m) => {
             const already = ev.assignments.filter((a) => a.user_id === m.user_id).map((a) => a.role_name);
-            return `<label class="item"><input type="radio" name="user" value="${m.user_id}" required style="width:20px;height:20px;accent-color:var(--blue)">
-              <span class="avatar">${initial(m.profile.name)}</span>
+            return `<label class="item" data-skills="${esc(m.skills.join('|'))}"><input type="radio" name="user" value="${m.user_id}" required style="width:20px;height:20px;accent-color:var(--blue)">
+              ${face(m.profile)}
               <span class="item-main"><span class="item-title">${esc(m.profile.name)}${m.user_id === S.user.id ? ' (você)' : ''}</span>
-              ${already.length ? `<span class="item-sub">Já escalado: ${esc(already.join(', '))}</span>` : ''}</span></label>`;
+              ${m.skills.length ? `<span class="item-sub">${esc(m.skills.join(', '))}</span>` : ''}
+              ${already.length ? `<span class="item-sub" style="color:var(--gold-ink)">Já escalado: ${esc(already.join(', '))}</span>` : ''}</span></label>`;
           }).join('')}</div></fieldset>
         <button class="btn primary block">Escalar</button></form></div>`,
   },
@@ -861,11 +876,14 @@ const SCREENS = {
   repertorio: {
     load: async () => ({ songs: await S.api.songs(S.mid) }),
     view: ({ songs }) => {
-      const list = songs.slice().sort((a, b) => a.title.localeCompare(b.title, 'pt-BR'));
+      const cats = S.md.categories.filter((c) => songs.some((s) => (s.categories || []).includes(c.id)));
+      if (S.catFilter && !cats.some((c) => c.id === S.catFilter)) S.catFilter = null;
+      const list = songs.filter((s) => !S.catFilter || (s.categories || []).includes(S.catFilter)).sort((a, b) => a.title.localeCompare(b.title, 'pt-BR'));
       const artists = new Set(songs.map((s) => s.artist).filter(Boolean)).size;
       return `<div class="scroll">${header('Repertório', `${songs.length} ${songs.length === 1 ? 'música' : 'músicas'} · ${artists} ${artists === 1 ? 'artista' : 'artistas'}`)}
         <label class="search">${icon('search', 20)}<span class="sr-only">Buscar no repertório</span>
           <input type="search" data-filter="songs" placeholder="Buscar no repertório"></label>
+        ${cats.length ? `<div class="cat-row" role="group" aria-label="Classificação">${cats.map((c) => `<button class="chip" data-act="catFilter" data-id="${c.id}" aria-pressed="${S.catFilter === c.id}">${esc(c.name)}</button>`).join('')}</div>` : ''}
         ${list.length ? `<div class="list" data-filter-list="songs">${list.map((s) => `<button class="item" data-act="open" data-screen="musica" data-id="${s.id}" data-text="${esc((s.title + ' ' + s.artist + ' ' + s.key).toLowerCase())}">
           ${cover(s)}
           <span class="item-main"><span class="item-title">${esc(s.title)}</span><span class="item-sub">${esc(s.artist) || 'Artista não informado'}${s.content ? '' : ' · sem cifra'}</span></span>
@@ -928,6 +946,7 @@ const SCREENS = {
         ${admin ? `<div style="display:flex;gap:4px"><button class="icon-btn" data-act="open" data-screen="musicaForm" data-id="${s.id}" aria-label="Editar música">${icon('edit', 20)}</button>
           <button class="icon-btn" data-act="delSong" data-id="${s.id}" aria-label="Apagar música">${icon('trash', 20)}</button></div>` : ''}</div>
         <div class="song-head">${cover(s, 'lg')}<div class="title-block grow" style="min-width:0"><h1 class="h1">${esc(s.title)}</h1><p class="sub">${esc(meta)}</p></div></div>
+        ${(s.categories || []).length ? `<div class="chips">${S.md.categories.filter((c) => s.categories.includes(c.id)).map((c) => `<span class="tag admin" style="font-size:13px;padding:5px 10px">${esc(c.name)}</span>`).join('')}</div>` : ''}
         <div class="link-row">
           <a class="chip-link" href="${esc(L.cifra ? safeUrl(L.cifra) : search.cifra)}" target="_blank" rel="noopener">${icon('doc', 18)}Cifra</a>
           <a class="chip-link" href="${esc(L.letra ? safeUrl(L.letra) : search.cifra)}" target="_blank" rel="noopener">${icon('text', 18)}Letra</a>
@@ -979,6 +998,8 @@ const SCREENS = {
             <label class="field grow"><span>Tom da cifra</span><select class="input" name="key" data-auto="${v.key ? '0' : '1'}"><option value="">Detectar pela cifra</option>
               ${keys.map((k) => `<option ${k === v.key ? 'selected' : ''}>${k}</option>`).join('')}</select></label>
             <label class="field" style="width:110px"><span>BPM</span><input class="input" name="bpm" type="number" inputmode="numeric" min="0" max="300" value="${esc(v.bpm || '')}"></label></div>
+          ${S.md.categories.length ? `<div class="section"><h2 class="h2">Classificação</h2>
+            <div class="chips">${S.md.categories.map((c) => `<label class="chip check-chip"><input type="checkbox" name="category" value="${c.id}" ${(v.categories || []).includes(c.id) ? 'checked' : ''}><span>${esc(c.name)}</span></label>`).join('')}</div></div>` : ''}
           <div class="section">
             <div class="section-head"><h2 class="h2">Links</h2>
               <button type="button" class="btn link small" data-act="autofill">${icon('bolt', 18)}Preencher automaticamente</button></div>
@@ -997,61 +1018,239 @@ const SCREENS = {
   ministerio: {
     view: () => {
       const m = S.md.ministry;
-      const admins = S.md.members.filter((x) => x.role === 'admin').length;
-      return `<div class="scroll">${header('Ministério')}
-        <div class="hero" style="cursor:default">
-          <div style="display:flex;align-items:center;gap:14px">
-            <span class="avatar" style="width:60px;height:60px;border-radius:16px;background:#fff;font-size:20px;font-weight:800">${initial(m.name)}</span>
-            <div style="display:flex;flex-direction:column;gap:2px"><span class="big" style="font-size:19px">${esc(m.name)}</span>
-            <span class="small">${S.md.members.length} ${S.md.members.length === 1 ? 'membro' : 'membros'} · ${S.md.roles.length} funções</span></div></div>
-          <div class="code-box"><div style="display:flex;flex-direction:column;gap:2px"><span class="small" style="font-size:13px">Código de convite</span><strong>${esc(m.invite_code)}</strong></div>
-            <button class="btn white small" data-act="invite">${icon('share', 18)}Convidar</button></div>
+      const admin = isAdmin();
+      const tab = S.minTab || 'info';
+      const n = S.md.members.length;
+      const admins = S.md.members.filter((x) => x.role === 'admin');
+      const coverInput = admin ? `<input type="file" accept="image/*" class="sr-only" id="min-cover" data-cover="1">` : '';
+      const info = `
+        <div class="min-card">
+          ${m.cover
+            ? `<img class="min-cover" src="${esc(m.cover)}" alt="Foto do ministério ${esc(m.name)}">`
+            : admin
+              ? `<label class="min-cover empty" for="min-cover">${icon('camera', 26)}<span>Adicionar foto do ministério</span></label>`
+              : `<div class="min-cover empty">${logo(56)}</div>`}
+          ${coverInput}
+          <div class="min-name">
+            <span class="h2 grow">${esc(m.name)}</span>
+            ${admin ? `<button class="icon-btn" data-act="open" data-screen="ministerioForm" aria-label="Editar nome e foto">${icon('edit', 20)}</button>` : ''}</div>
+        </div>
+        <button class="item card invite-card" data-act="open" data-screen="convite">
+          <span class="invite-ic">${icon('userPlus', 22)}</span>
+          <span class="item-main"><span class="item-title">Convidar membros</span>
+            <span class="item-sub">Código ${esc(m.invite_code)} · enviar convite</span></span>${icon('chev', 18)}</button>
+        <div class="list">
+          ${menuItem('team', 'Equipes', 'equipes', S.md.teams.length)}
+          ${menuItem('tag', 'Funções', 'funcoes', S.md.roles.length)}
+          ${menuItem('shapes', 'Classificações', 'classificacoes', S.md.categories.length)}
+          ${menuItem('shield', 'Administradores', 'administradores', admins.length)}
         </div>
         <div class="list">
-          <button class="item" data-act="open" data-screen="membros"><span style="color:var(--blue)">${icon('people')}</span>
-            <span class="item-main"><span class="item-title" style="font-weight:600">Membros</span></span><span class="item-sub">${S.md.members.length}</span>${icon('chev', 18)}</button>
-          <button class="item" data-act="open" data-screen="funcoes"><span style="color:var(--blue)">${icon('tag')}</span>
-            <span class="item-main"><span class="item-title" style="font-weight:600">Funções</span></span><span class="item-sub">${S.md.roles.length}</span>${icon('chev', 18)}</button>
-          <div class="item static"><span style="color:var(--blue)">${icon('shield')}</span>
-            <span class="item-main"><span class="item-title" style="font-weight:600">Administradores</span><span class="item-sub">${esc(S.md.members.filter((x) => x.role === 'admin').map((x) => firstName(x.profile.name)).join(', '))}</span></span><span class="item-sub">${admins}</span></div>
+          <button class="item" data-act="open" data-screen="perfil">${face(S.profile, 'sm')}
+            <span class="item-main"><span class="item-title">Meu perfil</span></span>${icon('chev', 18)}</button>
+          <button class="item" data-act="open" data-screen="ministerios"><span class="menu-ic">${icon('swap')}</span>
+            <span class="item-main"><span class="item-title">Trocar ou entrar em outro ministério</span></span>${icon('chev', 18)}</button>
+          ${S.api.mode === 'demo' ? `<button class="item" data-act="resetDemo"><span class="menu-ic">${icon('swap')}</span>
+            <span class="item-main"><span class="item-title">Recomeçar a demonstração</span></span></button>` : ''}
+          <button class="item" data-act="signOut"><span class="menu-ic" style="color:var(--bad)">${icon('out')}</span>
+            <span class="item-main"><span class="item-title" style="color:var(--bad)">Sair da conta</span></span></button>
         </div>
-        <div class="list">
-          <button class="item" data-act="open" data-screen="perfil"><span class="avatar me" style="width:28px;height:28px;font-size:12px">${initial(S.profile.name)}</span>
-            <span class="item-main"><span class="item-title" style="font-weight:600">Meu perfil</span></span>${icon('chev', 18)}</button>
-          <button class="item" data-act="open" data-screen="ministerios"><span style="color:var(--blue)">${icon('swap')}</span>
-            <span class="item-main"><span class="item-title" style="font-weight:600">Trocar ou entrar em outro ministério</span></span>${icon('chev', 18)}</button>
-          ${S.api.mode === 'demo' ? `<button class="item" data-act="resetDemo"><span style="color:var(--blue)">${icon('swap')}</span>
-            <span class="item-main"><span class="item-title" style="font-weight:600">Recomeçar a demonstração</span></span></button>` : ''}
-          <button class="item" data-act="signOut"><span style="color:var(--bad)">${icon('out')}</span>
-            <span class="item-main"><span class="item-title" style="font-weight:600;color:var(--bad)">Sair da conta</span></span></button>
+        ${demoBanner()}`;
+      const members = `<div class="list">${S.md.members.map((x) => {
+        const self = x.user_id === S.user.id;
+        const skills = x.skills.length ? x.skills.join(', ') : self ? 'Toque para escolher o que você faz' : 'Funções não informadas';
+        return `<button class="item" data-act="open" data-screen="membro" data-id="${x.id}">${face(x.profile, 'lg')}
+          <span class="item-main"><span class="item-title">${esc(x.profile.name)}${self ? ' (você)' : ''}</span>
+            <span class="item-sub clamp">${esc(skills)}</span>
+            ${x.role === 'admin' ? '<span class="admin-label">Administrador</span>' : ''}</span>${icon('chev', 18)}</button>`;
+      }).join('')}</div>`;
+      return `<div class="scroll">${header('Ministério', m.name)}
+        <div class="seg" role="group" aria-label="Seção">
+          <button data-act="minTab" data-v="info" aria-pressed="${tab === 'info'}">Informações</button>
+          <button data-act="minTab" data-v="membros" aria-pressed="${tab === 'membros'}">Membros (${n})</button></div>
+        ${tab === 'info' ? info : members}
+      </div>${tab === 'membros' ? `<button class="fab" data-act="open" data-screen="convite" aria-label="Convidar membros">${icon('userPlus', 20)}Convidar</button>` : ''}`;
+    },
+  },
+
+  ministerioForm: {
+    view: () => {
+      const m = S.md.ministry;
+      return `<div class="scroll">${backBtn('Ministério')}${header('Editar ministério')}
+        <div class="min-card">
+          ${m.cover ? `<img class="min-cover" src="${esc(m.cover)}" alt="Foto do ministério">` : `<label class="min-cover empty" for="min-cover">${icon('camera', 26)}<span>Adicionar foto do ministério</span></label>`}
+          <input type="file" accept="image/*" class="sr-only" id="min-cover" data-cover="1">
+          <div class="min-name" style="gap:10px;flex-wrap:wrap">
+            <label class="btn outline small grow" for="min-cover">${icon('camera', 18)}${m.cover ? 'Trocar foto' : 'Escolher foto'}</label>
+            ${m.cover ? `<button class="btn danger small" data-act="removeCover">${icon('trash', 18)}Remover</button>` : ''}</div>
         </div>
-        ${demoBanner()}
+        <form class="form" data-form="ministerio">
+          <label class="field"><span>Nome do ministério</span><input class="input" name="name" required maxlength="60" value="${esc(m.name)}"></label>
+          <button class="btn primary block">Salvar</button></form></div>`;
+    },
+  },
+
+  convite: {
+    view: () => {
+      const m = S.md.ministry;
+      return `<div class="scroll">${backBtn()}
+        <div class="title-block" style="text-align:center;gap:6px;padding:8px 0">
+          <p class="sub" style="font-size:16px">Convide membros para o ministério</p><h1 class="h1">${esc(m.name)}</h1></div>
+        <div class="card invite-box">
+          <span class="item-sub">Código de convite</span>
+          <strong class="invite-code">${esc(m.invite_code)}</strong>
+          <span class="item-sub" style="word-break:break-all">${esc(inviteLink(m.invite_code))}</span>
+        </div>
+        <button class="btn primary block" data-act="invite">${icon('share', 18)}Enviar convite</button>
+        <button class="btn outline block" data-act="copyInvite">${icon('copy', 18)}Copiar link</button>
+        <p class="sub" style="text-align:center">Quem abrir o link entra direto no ministério depois de fazer login. Também dá para digitar o código em “Entrar com código de convite”.</p>
+        ${isAdmin() ? `<button class="btn link block" data-act="newInvite">${icon('sparkle', 18)}Gerar novo convite</button>
+          <p class="item-sub" style="text-align:center;margin:0">Use se o convite foi parar com quem não devia: o código atual deixa de funcionar.</p>` : ''}
       </div>`;
     },
   },
 
-  membros: {
-    view: () => `<div class="scroll">${backBtn('Ministério')}${header('Membros', `${S.md.members.length} no ministério`)}
-      <div class="list">${S.md.members.map((m) => {
-        const self = m.user_id === S.user.id;
-        return `<div class="item static"><span class="avatar ${self ? 'me' : ''}">${initial(m.profile.name)}</span>
-          <div class="item-main"><span class="item-title">${esc(m.profile.name)}${self ? ' (você)' : ''}</span>
-          ${m.profile.birthday ? `<span class="item-sub">Aniversário: ${Number(m.profile.birthday.slice(8))}/${m.profile.birthday.slice(5, 7)}</span>` : ''}</div>
-          ${m.role === 'admin' ? '<span class="tag admin">Admin</span>' : ''}
-          ${isAdmin() && !self ? `<button class="btn link small" data-act="toggleAdmin" data-id="${m.id}" data-role="${m.role}">${m.role === 'admin' ? 'Tirar admin' : 'Tornar admin'}</button>
-            <button class="icon-btn" data-act="removeMember" data-id="${m.id}" data-name="${esc(m.profile.name)}" aria-label="Remover ${esc(m.profile.name)}">${icon('x', 18)}</button>` : ''}</div>`;
-      }).join('')}</div>
-      <button class="btn primary block" data-act="invite">${icon('share', 18)}Convidar membros</button></div>`,
+  membro: {
+    view: (_d, { id }) => {
+      const x = S.md.members.find((m) => m.id === id);
+      if (!x) return `<div class="scroll">${backBtn()}<div class="empty">Esta pessoa não está mais no ministério.</div></div>`;
+      const self = x.user_id === S.user.id;
+      const admin = isAdmin();
+      const canEdit = self || admin;
+      const b = x.profile.birthday;
+      return `<div class="scroll">${backBtn()}
+        <div class="brand" style="gap:10px">${face(x.profile, 'xl')}
+          <h1 class="h1" style="font-size:24px">${esc(x.profile.name)}${self ? ' (você)' : ''}</h1>
+          <div class="chips" style="justify-content:center">${x.role === 'admin' ? '<span class="tag admin">Administrador</span>' : '<span class="tag neutral">Membro</span>'}
+            ${b ? `<span class="tag neutral">🎂 ${Number(b.slice(8))}/${b.slice(5, 7)}</span>` : ''}</div></div>
+        <form class="form" data-form="skills" data-id="${x.id}" data-self="${self ? 1 : ''}">
+          <div class="section"><h2 class="h2">${self ? 'O que você faz no ministério' : 'O que faz no ministério'}</h2>
+            <p class="sub">${canEdit ? 'Ajuda o líder a escalar: quem faz a função aparece primeiro na hora de escalar.' : ''}</p>
+            <div class="chips">${S.md.roles.map((r) => `<label class="chip check-chip">
+              <input type="checkbox" name="skill" value="${esc(r.name)}" ${x.skills.includes(r.name) ? 'checked' : ''} ${canEdit ? '' : 'disabled'}>
+              <span>${r.icon} ${esc(r.name)}</span></label>`).join('')}</div></div>
+          ${canEdit ? '<button class="btn primary block">Salvar funções</button>' : ''}</form>
+        ${S.md.teams.some((t) => t.member_ids.includes(x.user_id)) ? `<div class="section"><h2 class="h2">Equipes</h2>
+          <div class="chips">${S.md.teams.filter((t) => t.member_ids.includes(x.user_id)).map((t) => `<span class="tag neutral" style="font-size:14px;padding:6px 12px">${esc(t.name)}</span>`).join('')}</div></div>` : ''}
+        ${admin && !self ? `<div class="list">
+          <button class="item" data-act="toggleAdmin" data-id="${x.id}" data-role="${x.role}"><span class="menu-ic">${icon('shield')}</span>
+            <span class="item-main"><span class="item-title">${x.role === 'admin' ? 'Tirar de administrador' : 'Tornar administrador'}</span></span></button>
+          <button class="item" data-act="removeMember" data-id="${x.id}" data-name="${esc(x.profile.name)}"><span class="menu-ic" style="color:var(--bad)">${icon('out')}</span>
+            <span class="item-main"><span class="item-title" style="color:var(--bad)">Remover do ministério</span></span></button></div>` : ''}
+        ${self ? `<button class="btn outline block" data-act="open" data-screen="perfil">${icon('user', 18)}Editar nome, foto e aniversário</button>` : ''}
+      </div>`;
+    },
+  },
+
+  equipes: {
+    view: () => {
+      const admin = isAdmin();
+      const teams = S.md.teams;
+      return `<div class="scroll">${backBtn('Ministério')}${header('Equipes', 'Grupos que costumam servir juntos')}
+        ${teams.length ? teams.map((t) => {
+          const people = S.md.members.filter((m) => t.member_ids.includes(m.user_id));
+          return `<details class="card team-card"><summary>
+              <span class="team-name">${esc(t.name)}</span>
+              ${admin ? `<button class="icon-btn" data-act="open" data-screen="equipeForm" data-id="${t.id}" aria-label="Editar equipe ${esc(t.name)}">${icon('edit', 18)}</button>` : ''}
+              <span class="team-row"><span class="item-sub">${people.length} ${people.length === 1 ? 'membro' : 'membros'}</span>
+                <span class="stack">${people.slice(0, 5).map((p) => face(p.profile, 'sm')).join('')}${people.length > 5 ? `<span class="avatar sm">+${people.length - 5}</span>` : ''}</span>
+                <span class="chev-down">${icon('chev', 18)}</span></span></summary>
+            <div class="team-people">${people.length ? people.map((p) => `<div class="item static">${face(p.profile)}
+              <span class="item-main"><span class="item-title">${esc(p.profile.name)}</span><span class="item-sub">${esc(p.skills.join(', '))}</span></span></div>`).join('')
+              : '<p class="item-sub" style="margin:8px 0">Ninguém nesta equipe ainda.</p>'}</div></details>`;
+        }).join('')
+        : `<div class="empty">Nenhuma equipe ainda.${admin ? ' Crie equipes como “Vocal” ou “Banda de domingo” para escalar mais rápido.' : ''}</div>`}
+      </div>${admin ? fab('newTeam', 'Equipe') : ''}`;
+    },
+  },
+
+  equipeForm: {
+    view: (_d, { id }) => {
+      const t = S.md.teams.find((x) => x.id === id) || { name: '', member_ids: [] };
+      return `<div class="scroll">${backBtn('Equipes')}${header(id ? 'Editar equipe' : 'Nova equipe')}
+        <form class="form" data-form="equipe" data-id="${id || ''}">
+          <label class="field"><span>Nome da equipe</span><input class="input" name="name" required maxlength="40" value="${esc(t.name)}" placeholder="Ex.: Vocal" ${id ? '' : 'autofocus'}></label>
+          <fieldset class="field" style="border:0;padding:0;margin:0"><legend style="font-size:14px;font-weight:700;margin-bottom:6px">Membros</legend>
+            <div class="list">${S.md.members.map((m) => `<label class="item"><input class="check" type="checkbox" name="member" value="${m.user_id}" ${t.member_ids.includes(m.user_id) ? 'checked' : ''}>
+              ${face(m.profile)}<span class="item-main"><span class="item-title">${esc(m.profile.name)}</span>
+              <span class="item-sub">${esc(m.skills.join(', '))}</span></span></label>`).join('')}</div></fieldset>
+          <button class="btn primary block">${id ? 'Salvar equipe' : 'Criar equipe'}</button></form>
+        ${id ? `<button class="btn danger block" data-act="delTeam" data-id="${id}">${icon('trash', 18)}Apagar equipe</button>` : ''}</div>`;
+    },
   },
 
   funcoes: {
-    view: () => `<div class="scroll">${backBtn('Ministério')}${header('Funções', 'O que cada pessoa pode fazer numa escala')}
-      ${S.md.roles.length ? `<div class="list">${S.md.roles.map((r) => `<div class="item static"><span class="item-main"><span class="item-title" style="font-weight:600">${esc(r.name)}</span></span>
-        ${isAdmin() ? `<button class="icon-btn" data-act="delRole" data-id="${r.id}" aria-label="Apagar ${esc(r.name)}">${icon('x', 18)}</button>` : ''}</div>`).join('')}</div>`
+    view: () => {
+      const admin = isAdmin();
+      return `<div class="scroll"><div class="section-head">${backBtn('Ministério')}
+          ${admin ? `<button class="icon-btn" data-act="open" data-screen="funcaoForm" aria-label="Nova função">${icon('plus', 24)}</button>` : ''}</div>
+        ${header('Funções', 'O que cada pessoa pode fazer numa escala')}
+        ${S.md.roles.length ? `<div class="list">${S.md.roles.map((r) => {
+          const n = S.md.members.filter((m) => m.skills.includes(r.name)).length;
+          return `<div class="item static"><span class="role-ic" aria-hidden="true">${r.icon}</span>
+            <span class="item-main"><span class="item-title">${esc(r.name)}</span><span class="item-sub">${n ? `${n} ${n === 1 ? 'pessoa' : 'pessoas'}` : 'Ninguém marcou ainda'}</span></span>
+            ${admin ? `<button class="icon-btn" data-act="open" data-screen="funcaoForm" data-id="${r.id}" aria-label="Editar ${esc(r.name)}">${icon('edit', 20)}</button>
+              <button class="icon-btn" data-act="delRole" data-id="${r.id}" data-name="${esc(r.name)}" aria-label="Apagar ${esc(r.name)}">${icon('trash', 20)}</button>` : ''}</div>`;
+        }).join('')}</div>`
         : '<div class="empty">Nenhuma função cadastrada.</div>'}
-      ${isAdmin() ? `<form class="form card" data-form="funcao"><label class="field"><span>Nova função</span>
-        <input class="input" name="name" required maxlength="40" placeholder="Ex.: Backing vocal"></label>
-        <button class="btn primary block">Adicionar função</button></form>` : ''}</div>`,
+        ${admin ? `<button class="btn outline block" data-act="open" data-screen="funcaoForm">${icon('plus', 18)}Nova função</button>` : ''}</div>`;
+    },
+  },
+
+  funcaoForm: {
+    view: (_d, { id }) => {
+      const r = S.md.roles.find((x) => x.id === id) || { name: '', icon: '' };
+      const cur = r.icon || '🎵';
+      return `<div class="scroll">${backBtn('Funções')}${header(id ? 'Editar função' : 'Nova função')}
+        <form class="form" data-form="funcao" data-id="${id || ''}">
+          <label class="field"><span>Nome</span><input class="input" name="name" required maxlength="40" value="${esc(r.name)}" placeholder="Ex.: Backing vocal" data-guess-icon="${id ? '' : '1'}" ${id ? '' : 'autofocus'}></label>
+          <fieldset class="field" style="border:0;padding:0;margin:0"><legend style="font-size:14px;font-weight:700;margin-bottom:8px">Ícone</legend>
+            <div class="icon-grid">${ROLE_ICONS.map((ic) => `<label><input type="radio" name="icon" value="${ic}" ${ic === cur ? 'checked' : ''}><span>${ic}</span></label>`).join('')}</div></fieldset>
+          <button class="btn primary block">${id ? 'Salvar função' : 'Adicionar função'}</button></form>
+        ${id ? `<button class="btn danger block" data-act="delRole" data-id="${id}" data-name="${esc(r.name)}" data-back="1">${icon('trash', 18)}Apagar função</button>` : ''}</div>`;
+    },
+  },
+
+  classificacoes: {
+    view: () => {
+      const admin = isAdmin();
+      const list = S.md.categories;
+      return `<div class="scroll"><div class="section-head">${backBtn('Ministério')}
+          ${admin ? `<button class="icon-btn" data-act="open" data-screen="categoriaForm" aria-label="Nova classificação">${icon('plus', 24)}</button>` : ''}</div>
+        ${header('Classificações', 'Organize as músicas do repertório por tema')}
+        ${list.length ? `<label class="search">${icon('search', 20)}<span class="sr-only">Buscar classificações</span>
+            <input type="search" data-filter="cats" placeholder="Buscar classificações"></label>
+          <div class="list" data-filter-list="cats">${list.map((c) => `<${admin ? 'button' : 'div'} class="item ${admin ? '' : 'static'}" ${admin ? `data-act="open" data-screen="categoriaForm" data-id="${c.id}"` : ''} data-text="${esc((c.name + ' ' + c.description).toLowerCase())}">
+            <span class="item-main"><span class="item-title">${esc(c.name)}</span>${c.description ? `<span class="item-sub">${esc(c.description)}</span>` : ''}</span>
+            ${admin ? icon('chev', 18) : ''}</${admin ? 'button' : 'div'}>`).join('')}</div>`
+          : `<div class="empty">Nenhuma classificação ainda.${admin ? `<br><br><button class="btn primary" data-act="seedCats">Usar as sugeridas</button>` : ''}</div>`}
+        ${admin && list.length ? `<button class="btn outline block" data-act="open" data-screen="categoriaForm">${icon('plus', 18)}Nova classificação</button>` : ''}</div>`;
+    },
+  },
+
+  categoriaForm: {
+    view: (_d, { id }) => {
+      const c = S.md.categories.find((x) => x.id === id) || { name: '', description: '' };
+      return `<div class="scroll">${backBtn('Classificações')}${header(id ? 'Editar classificação' : 'Nova classificação')}
+        <form class="form" data-form="categoria" data-id="${id || ''}">
+          <label class="field"><span>Nome</span><input class="input" name="name" required maxlength="40" value="${esc(c.name)}" placeholder="Ex.: Adoração" ${id ? '' : 'autofocus'}></label>
+          <label class="field"><span>Descrição <small>(opcional)</small></span><textarea class="input" name="description" maxlength="200" rows="3" style="min-height:90px" placeholder="Que tipo de música entra aqui">${esc(c.description)}</textarea></label>
+          <button class="btn primary block">${id ? 'Salvar' : 'Adicionar'}</button></form>
+        ${id ? `<button class="btn danger block" data-act="delCat" data-id="${id}" data-name="${esc(c.name)}">${icon('trash', 18)}Apagar classificação</button>` : ''}</div>`;
+    },
+  },
+
+  administradores: {
+    view: () => {
+      const admin = isAdmin();
+      return `<div class="scroll">${backBtn('Ministério')}${header('Administradores', admin ? 'Administradores criam escalas, músicas, avisos e cuidam do ministério.' : 'Quem cuida das escalas e do ministério.')}
+        <form class="form" data-form="admins">
+          <div class="list">${S.md.members.map((m) => `<label class="item">${face(m.profile, 'lg')}
+            <span class="item-main"><span class="item-title">${esc(m.profile.name)}${m.user_id === S.user.id ? ' (você)' : ''}</span>
+              <span class="item-sub clamp">${esc(m.skills.join(', '))}</span></span>
+            <input class="switch" type="checkbox" name="admin" value="${m.id}" ${m.role === 'admin' ? 'checked' : ''} ${admin ? '' : 'disabled'} aria-label="Administrador: ${esc(m.profile.name)}"></label>`).join('')}</div>
+          ${admin ? '<button class="btn primary block">Salvar</button>' : ''}</form></div>`;
+    },
   },
 
   aviso: {
@@ -1063,6 +1262,13 @@ const SCREENS = {
 
   perfil: {
     view: () => `<div class="scroll">${backBtn()}${header('Meu perfil')}
+      <div class="brand" style="gap:10px">${face(S.profile, 'xl')}
+        <input type="file" accept="image/*" class="sr-only" id="avatar-input" data-avatar="1">
+        <div style="display:flex;gap:10px;justify-content:center;flex-wrap:wrap">
+          <label class="btn outline small" for="avatar-input">${icon('camera', 18)}${S.profile.avatar ? 'Trocar foto' : 'Colocar foto'}</label>
+          ${S.profile.avatar ? `<button class="btn danger small" data-act="removeAvatar">${icon('trash', 18)}Remover</button>` : ''}</div></div>
+      ${me() ? `<button class="item card" data-act="open" data-screen="membro" data-id="${me().id}"><span class="menu-ic">${icon('tag')}</span>
+        <span class="item-main"><span class="item-title">O que eu faço no ministério</span><span class="item-sub">${esc(me().skills.join(', ') || 'Escolha suas funções')}</span></span>${icon('chev', 18)}</button>` : ''}
       <form class="form" data-form="perfil" data-stay="1">
         <label class="field"><span>Nome</span><input class="input" name="name" required maxlength="40" value="${esc(S.profile.name)}"></label>
         <label class="field"><span>Aniversário <small>(aparece para o ministério)</small></span>
@@ -1080,7 +1286,7 @@ const SCREENS = {
   ministerios: {
     view: () => `<div class="scroll">${backBtn()}${header('Seus ministérios')}
       <div class="list">${S.ministries.map((m) => `<button class="item" data-act="switchMin" data-id="${m.id}">
-        <span class="avatar">${initial(m.name)}</span>
+        ${m.cover ? `<img class="avatar" src="${esc(m.cover)}" alt="">` : `<span class="avatar">${initial(m.name)}</span>`}
         <span class="item-main"><span class="item-title">${esc(m.name)}</span><span class="item-sub">${m.myRole === 'admin' ? 'Administrador' : 'Membro'}</span></span>
         ${m.id === S.mid ? '<span class="tag admin">Atual</span>' : icon('chev', 18)}</button>`).join('')}</div>
       <form class="card form" data-form="entrar"><h2 class="h2">Entrar com código de convite</h2>
@@ -1297,15 +1503,48 @@ const ACTIONS = {
     if (!(await ask('Apagar este aviso?'))) return;
     if (await run(() => S.api.removeNotice(d.id), 'Aviso apagado.')) refresh({ keepScroll: true });
   },
-  delRole: async (d) => { if (await run(() => S.api.removeRole(d.id), 'Função apagada.')) { invalidate(); refresh({ keepScroll: true }); } },
+  delRole: async (d) => {
+    if (!(await ask(`Apagar a função “${d.name}”? Quem já está escalado nela continua na escala.`))) return;
+    if (await run(() => S.api.removeRole(d.id), 'Função apagada.')) { invalidate(); if (d.back) back(); else refresh({ keepScroll: true }); }
+  },
   toggleAdmin: async (d) => {
     const role = d.role === 'admin' ? 'member' : 'admin';
+    if (role === 'member' && S.md.members.filter((m) => m.role === 'admin').length <= 1) return toast('O ministério precisa de pelo menos um administrador.');
     if (await run(() => S.api.setMemberRole(d.id, role), role === 'admin' ? 'Agora é administrador.' : 'Deixou de ser administrador.')) { invalidate(); refresh({ keepScroll: true }); }
   },
   removeMember: async (d) => {
     if (!(await ask(`Remover ${d.name} do ministério?`))) return;
-    if (await run(() => S.api.removeMember(d.id), 'Membro removido.')) { invalidate(); refresh({ keepScroll: true }); }
+    if (await run(() => S.api.removeMember(d.id), 'Membro removido.')) { invalidate(); back(); }
   },
+  minTab: (d) => { S.minTab = d.v; repaint(); },
+  removeCover: async () => {
+    if (!(await ask('Remover a foto do ministério?', 'Remover'))) return;
+    if (await run(() => S.api.removeMinistryCover(S.md.ministry), 'Foto removida.')) { invalidate(); refresh({ keepScroll: true }); }
+  },
+  removeAvatar: async () => {
+    if (!(await ask('Remover sua foto de perfil?', 'Remover'))) return;
+    if (await run(() => S.api.removeAvatar(S.profile), 'Foto removida.')) { invalidate(); refresh({ keepScroll: true }); }
+  },
+  copyInvite: async () => {
+    const link = inviteLink(S.md.ministry.invite_code);
+    try { await navigator.clipboard.writeText(link); toast('Link copiado.'); }
+    catch { showText('Link do convite', link); }
+  },
+  newInvite: async () => {
+    if (!(await ask('Gerar um novo convite? O código atual deixa de funcionar e quem ainda não entrou vai precisar do novo.', 'Gerar novo'))) return;
+    if (await run(() => S.api.newInviteCode(S.mid), 'Novo convite gerado.')) { invalidate(); refresh(); }
+  },
+  newTeam: () => push('equipeForm', {}),
+  delTeam: async (d) => {
+    if (!(await ask('Apagar esta equipe? As pessoas continuam no ministério.'))) return;
+    if (await run(() => S.api.removeTeam(d.id), 'Equipe apagada.')) { invalidate(); back(); }
+  },
+  seedCats: async () => { if (await run(() => S.api.seedCategories(S.mid), 'Classificações adicionadas.')) { invalidate(); refresh(); } },
+  delCat: async (d) => {
+    if (!(await ask(`Apagar a classificação “${d.name}”? As músicas continuam no repertório.`))) return;
+    if (await run(() => S.api.removeCategory(d.id), 'Classificação apagada.')) { invalidate(); back(); }
+  },
+  catFilter: (d) => { S.catFilter = S.catFilter === d.id ? null : d.id; repaint(); },
   invite: async () => {
     const m = S.md.ministry;
     const text = `Você foi convidado para o ministério ${m.name} no Asa, o app de escalas.\n\nAbra o link: ${inviteLink(m.invite_code)}\nOu use o código: ${m.invite_code}`;
@@ -1369,6 +1608,7 @@ const FORMS = {
         key: f.get('key') || detectKey(content), link: (f.get('link_video') || '').trim(), content,
         links: Object.fromEntries(LINK_FIELDS.map(([k]) => [k, (f.get('link_' + k) || '').trim()])),
         artwork: f.get('artwork'), duration: f.get('duration'), bpm: f.get('bpm'),
+        ...(S.md.categories.length ? { categories: f.getAll('category') } : {}),
       });
     }, id ? 'Música atualizada.' : 'Música salva no repertório.');
     if (!ok) return;
@@ -1388,7 +1628,45 @@ const FORMS = {
     S.search.loading = false;
     if (current().name === 'buscarMusica') repaint();
   },
-  funcao: async (f) => { if (await run(() => S.api.addRole(S.mid, f.get('name')), 'Função adicionada.')) { invalidate(); refresh({ keepScroll: true }); } },
+  funcao: async (f, el) => {
+    const id = el.dataset.id;
+    const name = (f.get('name') || '').trim();
+    const ic = f.get('icon') || guessIcon(name);
+    if (S.md.roles.some((r) => r.id !== id && r.name.toLowerCase() === name.toLowerCase())) return toast('Já existe uma função com esse nome.');
+    const role = S.md.roles.find((r) => r.id === id);
+    const pos = Math.max(0, ...S.md.roles.map((r) => r.position || 0)) + 1;
+    if (await run(() => (role ? S.api.renameRole(S.mid, role, name, ic) : S.api.addRole(S.mid, name, ic, pos)), role ? 'Função salva.' : 'Função adicionada.')) { invalidate(); back(); }
+  },
+  ministerio: async (f) => {
+    if (await run(() => S.api.updateMinistry(S.mid, { name: f.get('name').trim() }), 'Ministério salvo.')) { invalidate(); back(); }
+  },
+  skills: async (f, el) => {
+    const skills = f.getAll('skill');
+    const ok = await run(() => (el.dataset.self ? S.api.setMySkills(S.mid, skills) : S.api.setMemberSkills(el.dataset.id, skills)), 'Funções salvas.');
+    if (ok) { invalidate(); back(); }
+  },
+  equipe: async (f, el) => {
+    const t = { id: el.dataset.id || null, ministry_id: S.mid, name: f.get('name'), member_ids: f.getAll('member') };
+    if (await run(() => S.api.saveTeam(t), t.id ? 'Equipe salva.' : 'Equipe criada.')) { invalidate(); back(); }
+  },
+  categoria: async (f, el) => {
+    const c = { id: el.dataset.id || null, ministry_id: S.mid, name: f.get('name'), description: f.get('description') };
+    if (await run(() => S.api.saveCategory(c), c.id ? 'Classificação salva.' : 'Classificação adicionada.')) { invalidate(); back(); }
+  },
+  admins: async (f) => {
+    const on = new Set(f.getAll('admin'));
+    if (!on.size) return toast('Deixe pelo menos um administrador.');
+    const changes = S.md.members.filter((m) => (m.role === 'admin') !== on.has(m.id));
+    if (!changes.length) return back();
+    const meLosing = changes.some((m) => m.user_id === S.user.id);
+    if (meLosing && !(await ask('Você vai deixar de ser administrador e não poderá mais editar escalas. Continuar?', 'Continuar'))) return;
+    const ok = await run(async () => {
+      // primeiro quem vira admin, depois quem deixa de ser (assim nunca fica sem administrador)
+      for (const m of changes.filter((x) => on.has(x.id))) await S.api.setMemberRole(m.id, 'admin');
+      for (const m of changes.filter((x) => !on.has(x.id))) await S.api.setMemberRole(m.id, 'member');
+    }, 'Administradores salvos.');
+    if (ok) { invalidate(); back(); }
+  },
   aviso: async (f) => {
     if (await run(() => S.api.addNotice({ ministry_id: S.mid, author_id: S.user.id, text: f.get('text').trim() }), 'Aviso publicado.')) back();
   },
@@ -1426,6 +1704,25 @@ function wire() {
       }).catch((err) => toast(err.message));
       return;
     }
+    if ((el.dataset.cover || el.dataset.avatar) && el.files && el.files[0]) {
+      const file = el.files[0];
+      const isCover = !!el.dataset.cover;
+      toast('Enviando foto…');
+      run(async () => {
+        const blob = await resizeImage(file, isCover ? 1280 : 512);
+        if (isCover) await S.api.setMinistryCover(S.md.ministry, blob); else await S.api.setAvatar(S.profile, blob);
+      }, 'Foto salva.').then((ok) => { if (ok) { invalidate(); refresh({ keepScroll: true }); } });
+      return;
+    }
+    if (el.dataset.change === 'escalarRole') {
+      const role = el.value;
+      root().querySelectorAll('[data-skills]').forEach((row) => {
+        const has = role && row.dataset.skills.split('|').includes(role);
+        row.style.order = has ? -1 : 0;
+        row.classList.toggle('match', !!has);
+      });
+      return;
+    }
     if (el.dataset.banner && el.files && el.files[0]) {
       const file = el.files[0];
       const ev = S.view.data.ev;
@@ -1447,6 +1744,12 @@ function wire() {
         const img = root().querySelector('[data-art-preview]');
         if (img && S.view.data.ev) renderArt(img, S.view.data.ev, S.artEdit.kind, S.artEdit.settings, S.artEdit.photoImg);
       }, 250);
+      return;
+    }
+    if (e.target.dataset.guessIcon === '1') {
+      const ic = guessIcon(e.target.value);
+      const radio = e.target.form.querySelector(`input[name="icon"][value="${ic}"]`);
+      if (radio) radio.checked = true;
       return;
     }
     const area = e.target.closest('[data-detect="key"]');
