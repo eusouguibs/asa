@@ -1,10 +1,10 @@
 // Asa — telas e navegação do app.
-import { createApi, demoAdapter, supabaseAdapter, todayISO, addDays, artsOf } from './data.js?v=16';
+import { createApi, demoAdapter, supabaseAdapter, todayISO, addDays, artsOf } from './data.js?v=17';
 import {
   MAJOR_KEYS, MINOR_KEYS, parseKey, shiftKey, semitonesBetween, transposeText, detectKey,
   renderCifra, songLinks, fmtDuration, searchSongs, cifraClubLinks, findAudio,
-} from './music.js?v=16';
-import { drawArt, defaultArt, THEMES, FORMATS, loadImage } from './art.js?v=16';
+} from './music.js?v=17';
+import { drawArt, defaultArt, THEMES, FORMATS, loadImage } from './art.js?v=17';
 
 const LINK_FIELDS = [
   ['cifra', 'Cifra', 'doc'],
@@ -582,9 +582,11 @@ const SCREENS = {
           <div class="banner"><strong>Digite o código que chegou no e-mail.</strong> Não toque no link do e-mail: ele abre o navegador, e você continuaria sem entrar ${installed() ? 'neste app' : 'aqui'}.</div>
           <form class="form" data-form="codigo">
             <label class="field"><span>Código de acesso</span>
-              <input class="input" name="code" required inputmode="numeric" autocomplete="one-time-code" maxlength="10"
+              <input class="input" name="code" required inputmode="numeric" autocomplete="one-time-code"
                 placeholder="código" style="font-size:24px;letter-spacing:0.3em;text-align:center" autofocus></label>
             <button class="btn primary block">Entrar</button></form>
+          <p class="sub" style="text-align:center">Chegou um <strong>link</strong> em vez de código? Não toque nele: toque e segure, escolha <strong>Copiar</strong> e depois toque abaixo.</p>
+          <button class="btn outline block" data-act="pasteLink">Colar link do e-mail</button>
           <button class="btn link" data-act="loginAgain">Usar outro e-mail ou reenviar</button></div>`;
       }
       return `<div class="center-screen"><div class="brand">${logo(84)}<h1 class="h1">Asa</h1>
@@ -1233,6 +1235,18 @@ const ACTIONS = {
 
   demoLogin: async () => { await S.api.auth.signIn(); invalidate(); refresh(); },
   loginAgain: () => { setLoginSent(null); refresh(); },
+  pasteLink: async () => {
+    let text = '';
+    try { text = await navigator.clipboard.readText(); } catch { /* sem permissão para ler */ }
+    const input = document.querySelector('form[data-form=codigo] input[name=code]');
+    if (!/[?&]token=/.test(text)) {
+      if (input) { input.value = ''; input.focus(); }
+      toast('Não achei o link. Toque e segure no campo do código e escolha Colar.');
+      return;
+    }
+    if (input) input.value = text;
+    if (await run(() => S.api.auth.verifyCode(S.loginSent, text))) { setLoginSent(null); invalidate(); refresh(); }
+  },
   signOut: async () => {
     if (!(await ask('Sair da sua conta neste aparelho?'))) return;
     await S.api.auth.signOut();

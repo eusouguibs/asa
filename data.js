@@ -219,8 +219,16 @@ export async function supabaseAdapter(cfg) {
         return { instant: false };
       },
       // Entrar digitando o código que veio no e-mail (funciona até no app instalado na tela de início).
-      async verifyCode(email, token) {
-        ok(await sb.auth.verifyOtp({ email, token: token.replace(/\D/g, ''), type: 'email' }));
+      // Aceita o código do e-mail ou, se o e-mail trouxe um link, o próprio link copiado.
+      async verifyCode(email, input) {
+        const text = String(input || '').trim();
+        const m = text.match(/[?&]token=([^&\s]+)/);
+        if (m) {
+          const type = (text.match(/[?&]type=([a-z_]+)/) || [])[1] || 'magiclink';
+          ok(await sb.auth.verifyOtp({ token_hash: decodeURIComponent(m[1]), type }));
+          return;
+        }
+        ok(await sb.auth.verifyOtp({ email, token: text.replace(/\D/g, ''), type: 'email' }));
       },
       async signOut() { await sb.auth.signOut(); },
       onChange(cb) { sb.auth.onAuthStateChange((event) => cb(event)); },
