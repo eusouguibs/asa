@@ -380,7 +380,7 @@ function friendly(msg = '') {
   if (m.includes('error sending') || m.includes('smtp')) return 'O Asa não conseguiu enviar o e-mail agora (falha no envio pelo Gmail). Avise o administrador do app e tente de novo em alguns minutos.';
   if (m.includes('rate limit')) return 'Muitos e-mails enviados em pouco tempo. Espere um pouco e tente de novo.';
   if (m.includes('expired') || m.includes('invalid') && m.includes('token')) return 'Código incorreto ou vencido. Confira o último e-mail ou peça outro.';
-  if (m.includes('load failed') || m.includes('failed to fetch') || m.includes('network')) return 'Sem conexão com a internet. Confira o sinal e tente de novo.';
+  if (m.includes('load failed') || m.includes('failed to fetch') || m.includes('network')) return 'Não foi possível falar com o servidor do Asa. Confira a internet; se ela estiver funcionando, o servidor pode estar fora do ar (avise o administrador do app).';
   if (m.includes('invalid') && m.includes('email')) return 'Esse e-mail parece estar errado. Confira e tente de novo.';
   return msg || 'Algo deu errado. Tente de novo.';
 }
