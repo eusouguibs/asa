@@ -1,11 +1,11 @@
 // Asa — telas e navegação do app.
-import { createApi, demoAdapter, supabaseAdapter, todayISO, addDays, artsOf, ROLE_ICONS, guessIcon } from './data.js?v=21';
+import { createApi, demoAdapter, supabaseAdapter, todayISO, addDays, artsOf, ROLE_ICONS, guessIcon } from './data.js?v=22';
 import {
   MAJOR_KEYS, MINOR_KEYS, parseKey, shiftKey, semitonesBetween, transposeText, detectKey,
   renderCifra, songLinks, fmtDuration, searchSongs, cifraClubLinks, findAudio,
-} from './music.js?v=21';
-import { drawArt, defaultArt, THEMES, FORMATS, loadImage } from './art.js?v=21';
-import { holyricsClient } from './holyrics.js?v=21';
+} from './music.js?v=22';
+import { drawArt, defaultArt, THEMES, FORMATS, loadImage } from './art.js?v=22';
+import { holyricsClient } from './holyrics.js?v=22';
 
 const LINK_FIELDS = [
   ['cifra', 'Cifra', 'doc'],
@@ -380,7 +380,7 @@ function friendly(msg = '') {
   if (m.includes('error sending') || m.includes('smtp')) return 'O Asa não conseguiu enviar o e-mail agora (falha no envio pelo Gmail). Avise o administrador do app e tente de novo em alguns minutos.';
   if (m.includes('rate limit')) return 'Muitos e-mails enviados em pouco tempo. Espere um pouco e tente de novo.';
   if (m.includes('expired') || m.includes('invalid') && m.includes('token')) return 'Código incorreto ou vencido. Confira o último e-mail ou peça outro.';
-  if (m.includes('failed to fetch') || m.includes('network')) return 'Sem conexão com a internet. Confira o sinal e tente de novo.';
+  if (m.includes('load failed') || m.includes('failed to fetch') || m.includes('network')) return 'Sem conexão com a internet. Confira o sinal e tente de novo.';
   if (m.includes('invalid') && m.includes('email')) return 'Esse e-mail parece estar errado. Confira e tente de novo.';
   return msg || 'Algo deu errado. Tente de novo.';
 }
